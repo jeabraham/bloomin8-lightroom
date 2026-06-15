@@ -18,7 +18,7 @@ API reference: https://bloomin8.readme.io/reference/get_deviceinfo
 This repository now implements **Step 1** (foundation + local publish pipeline).
 
 Implemented:
-- Lightroom plugin bundle scaffold: `/home/runner/work/bloomin8-lightroom/bloomin8-lightroom/jeabraham/bloomin8-lightroom/Bloomin8.lrplugin`
+- Lightroom plugin bundle scaffold: `<repository-root>/Bloomin8.lrplugin`
 - Plugin metadata (`Info.lua`)
 - Export/publish provider (`PublishServiceProvider.lua`)
 - Local directory setting in plugin UI
@@ -81,7 +81,7 @@ There is no automated Lua test harness in this repository yet. Validate in Light
 
 1. Open Lightroom Classic.
 2. File → Plug-in Manager → Add and select:
-   - `/home/runner/work/bloomin8-lightroom/bloomin8-lightroom/jeabraham/bloomin8-lightroom/Bloomin8.lrplugin`
+   - `<repository-root>/Bloomin8.lrplugin`
 3. Create/use an export publish action with this plugin.
 4. Set **Local publish directory** in plugin settings.
 5. Export/publish a small set of photos.

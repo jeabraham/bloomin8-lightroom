@@ -8,6 +8,12 @@ local bind = LrView.bind
 
 local PublishServiceProvider = {}
 
+PublishServiceProvider.supportsIncrementalPublish = 'only'
+
+PublishServiceProvider.exportPresetFields = {
+    { key = 'bloomin8LocalDirectory', default = '' },
+}
+
 function PublishServiceProvider.startDialog(propertyTable)
     propertyTable.bloomin8LocalDirectory = propertyTable.bloomin8LocalDirectory or ''
 

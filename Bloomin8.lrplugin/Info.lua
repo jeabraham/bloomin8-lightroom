@@ -5,7 +5,7 @@ return {
     LrPluginName = 'Bloomin8 Publish Service',
     LrPluginInfoUrl = 'https://bloomin8.readme.io/reference/get_deviceinfo',
 
-    LrExportServiceProvider = {
+    LrPublishServiceProvider = {
         title = 'Bloomin8 Publish Service',
         file = 'PublishServiceProvider.lua',
     },

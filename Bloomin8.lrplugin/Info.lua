@@ -8,6 +8,7 @@ return {
     LrPublishServiceProvider = {
         title = 'Bloomin8 Publish Service',
         file = 'PublishServiceProvider.lua',
+        small_icon = 'small_icon.png',
     },
 
     VERSION = {

@@ -305,7 +305,7 @@ if [[ "$ROTATE" -ne 0 ]]; then
     MAGICK_ARGS+=(-rotate "$ROTATE")
 fi
 MAGICK_ARGS+=(
-    -resize "${CANVAS_W}x${CANVAS_H}"
+    -resize "${CANVAS_W}x${CANVAS_H}>"
     -background "$PAD_COLOR"
     -gravity center
     -extent "${CANVAS_W}x${CANVAS_H}"

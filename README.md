@@ -139,13 +139,15 @@ Current docs indicate:
 - `status: 0` from the upload endpoint indicates an on-device render failure (not an HTTP error)
 
 **Orientation note (confirmed with real device):**
-The device reports `width:1200, height:1600` regardless of its physical mounting
-orientation.  When the frame is physically in landscape, a landscape photo
-(wider than tall) must be rotated 90° before upload so the device renders it
-correctly.  The probe script handles this automatically via `sips` on macOS.
-The future Lightroom plugin upload step must apply the same rotation logic,
-comparing the image's rendered pixel dimensions to the device's reported
-`width`/`height` values.
+The device reports `width:1200, height:1600` when in portrait orientation and
+`width:1600, height:1200` when in landscape.  The probe script uses ImageMagick
+to automatically rotate images whose orientation does not match the frame, then
+scales and letter/pillarboxes them to exactly fill the canvas.  Use
+`--frame-orientation portrait|landscape` to override what is inferred from the
+device's `width`/`height` values.
+The future Lightroom plugin upload step must apply the same rotation and
+padding logic, comparing the image's rendered pixel dimensions to the device's
+reported `width`/`height` values.
 
 If this shell-level probe works against the real device, the next code change should be implementing the same request flow in Lua.
 

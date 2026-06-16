@@ -8,7 +8,7 @@ local bind = LrView.bind
 
 local PublishServiceProvider = {}
 
-PublishServiceProvider.supportsIncrementalPublish = 'only'
+PublishServiceProvider.supportsIncrementalPublish = true
 
 PublishServiceProvider.exportPresetFields = {
     { key = 'bloomin8LocalDirectory', default = '' },

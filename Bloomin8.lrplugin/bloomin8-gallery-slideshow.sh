@@ -20,6 +20,7 @@ Options:
   --frame-orientation portrait|landscape
                                      Override the orientation inferred from /deviceInfo
   --pad-color COLOR                  Background fill color used when padding (default: black)
+  --random                           Shuffle images into a random upload order
   --connect-timeout N                Curl connect timeout in seconds (default: 5)
   --max-time N                       Curl total timeout in seconds (default: 60)
   --help                             Show this message
@@ -108,6 +109,16 @@ collect_images() {
     [[ "${#IMAGE_FILES[@]}" -gt 0 ]] || die "No JPG/JPEG files found in: $IMAGE_DIR"
 }
 
+shuffle_images() {
+    local i j tmp n="${#IMAGE_FILES[@]}"
+    for (( i = n - 1; i > 0; i-- )); do
+        j=$(( RANDOM % (i + 1) ))
+        tmp="${IMAGE_FILES[$i]}"
+        IMAGE_FILES[$i]="${IMAGE_FILES[$j]}"
+        IMAGE_FILES[$j]="$tmp"
+    done
+}
+
 prepare_image() {
     local source_path="$1"
     local output_stem="$2"
@@ -140,6 +151,7 @@ FRAME_ORIENTATION=""
 PAD_COLOR="black"
 CONNECT_TIMEOUT=5
 MAX_TIME=60
+RANDOM_ORDER=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -179,6 +191,10 @@ while [[ $# -gt 0 ]]; do
             MAX_TIME="${2:-}"
             shift 2
             ;;
+        --random)
+            RANDOM_ORDER=1
+            shift
+            ;;
         --help|-h)
             usage
             exit 0
@@ -214,6 +230,10 @@ fi
 
 IMAGE_DIR="$(cd "$IMAGE_DIR" && pwd)"
 collect_images
+
+if [[ "$RANDOM_ORDER" -eq 1 ]]; then
+    shuffle_images
+fi
 
 if [[ -z "$GALLERY" ]]; then
     GALLERY="$(basename "$IMAGE_DIR")"

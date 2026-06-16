@@ -172,12 +172,31 @@ Optional flags:
 - `--duration SECONDS` to control the slideshow interval sent to `POST /show`
 - `--image-dir PATH` if you want to run the helper from somewhere other than the publish directory
 - `--frame-orientation portrait|landscape` to override the orientation inferred from `/deviceInfo`
+- `--random` to shuffle images into a random upload order (the device displays them in the order they were uploaded)
 
 Current helper behavior:
 - calls `GET /deviceInfo`
 - deletes and recreates the target gallery so the slideshow contains exactly the current exported set
-- uploads each JPEG into that gallery
+- uploads each JPEG into that gallery (in sorted order by default; shuffled when `--random` is passed)
 - calls `POST /show` with `play_type: 1` so the frame iterates the gallery on-device
+
+## Automated gallery slideshow from Lightroom
+
+The plugin can upload photos and start the slideshow automatically after each
+publish.  Configure the **Step 2: Device Upload & Slideshow** section in the
+plugin settings:
+
+| Setting | Description |
+|---|---|
+| **Device host** | IP address or hostname of the Bloomin8 frame (e.g. `192.168.1.25`). Leave blank to skip upload and use the shell script manually. |
+| **Gallery name** | Name of the gallery on the device. Defaults to the local publish directory name if left blank. |
+| **Duration (seconds)** | Seconds between pictures in the slideshow (default: 120). |
+| **Playback order** | *Sequential* (default) or *Random*. Random shuffles the upload order so the device plays images in a random sequence. |
+
+When **Device host** is set, Lightroom will run `bloomin8-gallery-slideshow.sh`
+automatically at the end of each publish, uploading all rendered photos and
+starting playback on the frame.  If the script exits with an error a warning
+dialog will appear.
 
 ---
 

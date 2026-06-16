@@ -19,7 +19,7 @@ Options:
   --duration SECONDS                 Slideshow interval passed to POST /show (default: 120)
   --frame-orientation portrait|landscape
                                      Override the orientation inferred from /deviceInfo
-  --pad-color COLOR                  Background fill colour used when padding (default: black)
+  --pad-color COLOR                  Background fill color used when padding (default: black)
   --connect-timeout N                Curl connect timeout in seconds (default: 5)
   --max-time N                       Curl total timeout in seconds (default: 60)
   --help                             Show this message

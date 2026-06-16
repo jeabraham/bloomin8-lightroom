@@ -154,7 +154,7 @@ If this shell-level probe works against the real device, the next code change sh
 
 ---
 
-## Step 5 testing helper (manual)
+## Manual gallery slideshow testing
 
 Each Lightroom publish now also copies `bloomin8-gallery-slideshow.sh` into the
 local publish directory alongside the exported JPEGs.

@@ -14,11 +14,12 @@ PublishServiceProvider.supportsIncrementalPublish = 'only'
 PublishServiceProvider.small_icon = 'small_icon.png'
 
 PublishServiceProvider.exportPresetFields = {
-    { key = 'bloomin8LocalDirectory', default = '' },
-    { key = 'bloomin8DeviceHost',     default = '' },
-    { key = 'bloomin8GalleryName',    default = '' },
-    { key = 'bloomin8Duration',       default = '120' },
-    { key = 'bloomin8RandomOrder',    default = false },
+    { key = 'bloomin8LocalDirectory',   default = '' },
+    { key = 'bloomin8DeviceHost',       default = '' },
+    { key = 'bloomin8GalleryName',      default = '' },
+    { key = 'bloomin8Duration',         default = '120' },
+    { key = 'bloomin8RandomOrder',      default = false },
+    { key = 'bloomin8Orientation',      default = '' },
 }
 
 function PublishServiceProvider.startDialog(propertyTable)
@@ -26,6 +27,7 @@ function PublishServiceProvider.startDialog(propertyTable)
     propertyTable.bloomin8DeviceHost     = propertyTable.bloomin8DeviceHost     or ''
     propertyTable.bloomin8GalleryName    = propertyTable.bloomin8GalleryName    or ''
     propertyTable.bloomin8Duration       = propertyTable.bloomin8Duration       or '120'
+    propertyTable.bloomin8Orientation    = propertyTable.bloomin8Orientation    or ''
     if propertyTable.bloomin8RandomOrder == nil then
         propertyTable.bloomin8RandomOrder = false
     end
@@ -33,7 +35,7 @@ function PublishServiceProvider.startDialog(propertyTable)
     propertyTable.LR_format = 'JPEG'
     propertyTable.LR_jpeg_quality = propertyTable.LR_jpeg_quality or 0.85
     propertyTable.LR_size_doConstrain = true
-    propertyTable.LR_size_resizeType = 'dimensions'
+    propertyTable.LR_size_resizeType = 'wh'
     propertyTable.LR_size_maxWidth = 1600
     propertyTable.LR_size_maxHeight = 1200
     propertyTable.LR_size_units = 'pixels'
@@ -136,6 +138,27 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                     },
                 },
             },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text {
+                    title = 'Frame orientation:',
+                    alignment = 'right',
+                    width = 160,
+                },
+                f:popup_menu {
+                    value = bind 'bloomin8Orientation',
+                    items = {
+                        { title = 'Auto (from device)', value = ''          },
+                        { title = 'Portrait',           value = 'portrait'  },
+                        { title = 'Landscape',          value = 'landscape' },
+                    },
+                },
+            },
+            f:static_text {
+                title = 'Set to match how your frame is hung. Auto reads orientation from the device.',
+                fill_horizontal = 1,
+            },
         },
     }
 end
@@ -224,6 +247,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         local galleryName  = exportSettings.bloomin8GalleryName or ''
         local duration     = exportSettings.bloomin8Duration or '120'
         local randomOrder  = exportSettings.bloomin8RandomOrder
+        local orientation  = exportSettings.bloomin8Orientation or ''
 
         local cmd = string.format(
             'bash %q --host %q --image-dir %q --duration %q',
@@ -234,12 +258,22 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             cmd = cmd .. string.format(' --gallery %q', galleryName)
         end
 
+        if orientation ~= '' then
+            cmd = cmd .. string.format(' --frame-orientation %q', orientation)
+        end
+
         if randomOrder then
             cmd = cmd .. ' --random'
         end
 
-        local exitCode = os.execute(cmd)
-        if exitCode ~= 0 then
+        -- os.execute is unavailable in Lightroom's Lua sandbox; use io.popen
+        -- Append exit-code sentinel so we can detect failures.
+        local handle = io.popen('{ ' .. cmd .. '; }; printf "\\nBLOOMIN8_EXIT:%d" $?', 'r')
+        local output = handle and handle:read('*all') or ''
+        if handle then handle:close() end
+
+        local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
+        if exitCode == nil or exitCode ~= 0 then
             local msg = string.format(
                 'Slideshow upload finished with errors (exit code %s).\nCheck the Lightroom log for details.',
                 tostring(exitCode)

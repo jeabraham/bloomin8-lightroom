@@ -192,6 +192,7 @@ plugin settings:
 | **Gallery name** | Name of the gallery on the device. Defaults to the local publish directory name if left blank. |
 | **Duration (seconds)** | Seconds between pictures in the slideshow (default: 120). |
 | **Playback order** | *Sequential* (default) or *Random*. Random shuffles the upload order so the device plays images in a random sequence. |
+| **Frame orientation** | *Auto (from device)* reads width/height from `/deviceInfo`. Set to *Portrait* or *Landscape* to match how your frame is physically hung on the wall if the auto-detected value is wrong. |
 
 When **Device host** is set, Lightroom will run `bloomin8-gallery-slideshow.sh`
 automatically at the end of each publish, uploading all rendered photos and

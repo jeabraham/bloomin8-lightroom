@@ -23,8 +23,8 @@ function PublishServiceProvider.startDialog(propertyTable)
     propertyTable.LR_jpeg_quality = propertyTable.LR_jpeg_quality or 0.85
     propertyTable.LR_size_doConstrain = true
     propertyTable.LR_size_resizeType = 'wh'
-    propertyTable.LR_size_maxWidth = 1200
-    propertyTable.LR_size_maxHeight = 1600
+    propertyTable.LR_size_maxWidth = 1600
+    propertyTable.LR_size_maxHeight = 1200
     propertyTable.LR_size_units = 'pixels'
 end
 
@@ -48,7 +48,7 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                 },
             },
             f:static_text {
-                title = 'Files are rendered as JPEG, fit within 1200×1600px (screen dimensions).',
+                title = 'Files are rendered as JPEG, fit within 1600×1200px (Width & Height).',
                 fill_horizontal = 1,
             },
         },

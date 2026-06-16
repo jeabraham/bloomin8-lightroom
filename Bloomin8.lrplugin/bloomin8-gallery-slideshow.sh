@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
+FIRMWARE_UPLOAD_SUCCESS=100
 
 usage() {
     cat <<EOF
@@ -202,9 +203,7 @@ if command -v magick >/dev/null 2>&1; then
 elif command -v convert >/dev/null 2>&1; then
     MAGICK_CONVERT=(convert)
 else
-    die "ImageMagick is required for image processing.
-  macOS : brew install imagemagick
-  Debian: apt-get install imagemagick"
+    die $'ImageMagick is required for image processing.\n  macOS : brew install imagemagick\n  Debian: apt-get install imagemagick'
 fi
 
 if [[ "$HOST" == http://* || "$HOST" == https://* ]]; then
@@ -282,7 +281,7 @@ for image_path in "${IMAGE_FILES[@]}"; do
     echo "HTTP ${LAST_STATUS}"
     printf '%s\n' "$LAST_BODY"
     [[ "$LAST_STATUS" == "200" ]] || die "upload request failed for: $image_path"
-    grep -Eq '"status"[[:space:]]*:[[:space:]]*100' <<<"$LAST_BODY" || die "upload did not return status 100 for: $image_path"
+    grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY" || die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS} for: $image_path"
 done
 
 SHOW_BODY="{\"play_type\":1,\"gallery\":\"${SAFE_GALLERY}\",\"duration\":${DURATION}}"

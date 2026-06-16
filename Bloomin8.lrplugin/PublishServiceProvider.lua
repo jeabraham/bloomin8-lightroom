@@ -87,7 +87,7 @@ local function copySlideshowHelper(destinationDirectory)
 
     local copied = LrFileUtils.copy(helperSourcePath, helperDestinationPath)
     if not copied then
-        return false, string.format('Failed copying slideshow helper to %s', helperDestinationPath)
+        return false, string.format('Failed copying slideshow helper from %s to %s', helperSourcePath, helperDestinationPath)
     end
 
     return true

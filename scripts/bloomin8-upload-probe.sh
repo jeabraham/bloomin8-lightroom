@@ -14,26 +14,32 @@ Validate the Bloomin8 local API outside Lightroom by:
   2. Uploading a JPEG with POST /upload
 
 Options:
-  --host HOST          Device host or base URL (example: 192.168.1.25 or http://192.168.1.25)
-  --image PATH         Local JPEG file to upload
-  --gallery NAME       Destination gallery (default: default)
-  --filename NAME      Remote filename override
-  --show-now           Ask the frame to display the uploaded image immediately
-  --probe-only         Stop after GET /deviceInfo
-  --no-auto-rotate     Skip auto-rotation of landscape images (see below)
-  --rotate-ccw         Rotate counter-clockwise instead of clockwise when auto-rotating
-  --connect-timeout N  Curl connect timeout in seconds (default: 5)
-  --max-time N         Curl total timeout in seconds (default: 60)
-  --help               Show this message
+  --host HOST                        Device host or base URL (example: 192.168.1.25 or http://192.168.1.25)
+  --image PATH                       Local JPEG file to upload
+  --gallery NAME                     Destination gallery (default: default)
+  --filename NAME                    Remote filename override
+  --show-now                         Ask the frame to display the uploaded image immediately
+  --probe-only                       Stop after GET /deviceInfo
+  --frame-orientation portrait|landscape
+                                     Physical orientation of the frame (default: auto-detect from deviceInfo)
+  --pad-color COLOR                  Background fill colour used when letterboxing (default: black)
+  --connect-timeout N                Curl connect timeout in seconds (default: 5)
+  --max-time N                       Curl total timeout in seconds (default: 60)
+  --help                             Show this message
 
-Orientation auto-rotation:
-  The Bloomin8 frame processes all images in its logical portrait coordinate
-  space even when physically mounted in landscape.  If 'sips' is available
-  (macOS) and the image is landscape (width > height) while the device reports
-  portrait dimensions (height > width), the script rotates the image 90°
-  clockwise into a temporary file before uploading, then removes it.
-  Use --no-auto-rotate to upload the file as-is.  Use --rotate-ccw if
-  clockwise produces an upside-down result.
+Image processing:
+  Requires ImageMagick (the 'magick' or 'convert'/'identify' commands).
+
+  The script always produces a temporary JPEG that exactly matches the device
+  canvas dimensions reported by /deviceInfo (e.g. 1200x1600 for portrait).
+
+  If the image orientation (portrait vs landscape) differs from the frame
+  orientation, the image is first rotated 90° clockwise.  It is then scaled
+  to fit within the canvas while preserving aspect ratio, and any remaining
+  canvas area is filled with --pad-color (letterboxing / pillarboxing).
+
+  Use --frame-orientation to override the orientation inferred from the device
+  (useful when the device API reports stale or unexpected dimensions).
 EOF
 }
 
@@ -71,13 +77,41 @@ perform_request() {
     LAST_BODY="$(printf '%s\n' "$response" | sed '$d')"
 }
 
+# Extract a top-level numeric JSON field.  Uses jq when available, falls back
+# to a grep-based approach that handles both compact and pretty-printed JSON.
+extract_json_number() {
+    local key="$1" body="$2"
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$body" | jq -r ".${key} // empty" 2>/dev/null
+    else
+        printf '%s' "$body" \
+            | grep -oE "\"${key}\"[[:space:]]*:[[:space:]]*[0-9]+" \
+            | grep -oE '[0-9]+$' \
+            | head -n1
+    fi
+}
+
 require_command curl
 
-TEMP_ROTATED=""
+# Detect ImageMagick — prefer the unified 'magick' binary (IM 7+), fall back
+# to the classic 'convert' / 'identify' pair (IM 6 / distro packages).
+if command -v magick >/dev/null 2>&1; then
+    MAGICK_CONVERT=(magick)
+    MAGICK_IDENTIFY=(magick identify)
+elif command -v convert >/dev/null 2>&1 && command -v identify >/dev/null 2>&1; then
+    MAGICK_CONVERT=(convert)
+    MAGICK_IDENTIFY=(identify)
+else
+    die "ImageMagick is required for image processing.
+  macOS : brew install imagemagick
+  Debian: apt-get install imagemagick"
+fi
+
+TEMP_PROCESSED=""
 
 cleanup() {
-    if [[ -n "$TEMP_ROTATED" ]]; then
-        rm -f "$TEMP_ROTATED"
+    if [[ -n "$TEMP_PROCESSED" ]]; then
+        rm -f "$TEMP_PROCESSED"
     fi
 }
 trap cleanup EXIT
@@ -88,8 +122,8 @@ GALLERY="default"
 REMOTE_FILENAME=""
 SHOW_NOW=0
 PROBE_ONLY=0
-NO_AUTO_ROTATE=0
-ROTATE_ANGLE=90
+FRAME_ORIENTATION=""
+PAD_COLOR="black"
 CONNECT_TIMEOUT=5
 MAX_TIME=60
 
@@ -119,13 +153,17 @@ while [[ $# -gt 0 ]]; do
             PROBE_ONLY=1
             shift
             ;;
-        --no-auto-rotate)
-            NO_AUTO_ROTATE=1
-            shift
+        --frame-orientation)
+            FRAME_ORIENTATION="${2:-}"
+            case "$FRAME_ORIENTATION" in
+                portrait|landscape) ;;
+                *) die "--frame-orientation must be 'portrait' or 'landscape'" ;;
+            esac
+            shift 2
             ;;
-        --rotate-ccw)
-            ROTATE_ANGLE=270
-            shift
+        --pad-color)
+            PAD_COLOR="${2:-}"
+            shift 2
             ;;
         --connect-timeout)
             CONNECT_TIMEOUT="${2:-}"
@@ -202,27 +240,80 @@ if [[ "$PROBE_ONLY" -eq 1 ]]; then
     exit 0
 fi
 
-# Auto-rotate landscape images when the device coordinate space is portrait.
-# The Bloomin8 device processes images in its logical portrait space even when
-# the physical frame is mounted in landscape; a landscape photo must therefore
-# be rotated 90° so it fills the screen correctly.
 UPLOAD_IMAGE="$IMAGE_PATH"
 
-if [[ "$NO_AUTO_ROTATE" -eq 0 ]] && command -v sips >/dev/null 2>&1; then
-    DEVICE_W="$(printf '%s' "$LAST_BODY" | sed 's/.*"width":\([0-9]*\).*/\1/')"
-    DEVICE_H="$(printf '%s' "$LAST_BODY" | sed 's/.*"height":\([0-9]*\).*/\1/')"
-    IMG_W="$(sips -g pixelWidth "$IMAGE_PATH" 2>/dev/null | awk '/pixelWidth/{print $2}')"
-    IMG_H="$(sips -g pixelHeight "$IMAGE_PATH" 2>/dev/null | awk '/pixelHeight/{print $2}')"
+# ---------------------------------------------------------------------------
+# Determine canvas dimensions.
+# ---------------------------------------------------------------------------
+CANVAS_W="$(extract_json_number "width"  "$LAST_BODY")"
+CANVAS_H="$(extract_json_number "height" "$LAST_BODY")"
 
-    if [[ -n "$DEVICE_W" && -n "$DEVICE_H" && -n "$IMG_W" && -n "$IMG_H" ]]; then
-        if [[ "$IMG_W" -gt "$IMG_H" ]] && [[ "$DEVICE_H" -gt "$DEVICE_W" ]]; then
-            echo "==> Auto-rotating landscape image ${IMG_W}x${IMG_H} to portrait for ${DEVICE_W}x${DEVICE_H} device"
-            TEMP_ROTATED="$(mktemp /tmp/bloomin8-rotated-XXXXXX.jpg)"
-            sips -r "$ROTATE_ANGLE" "$IMAGE_PATH" --out "$TEMP_ROTATED" >/dev/null
-            UPLOAD_IMAGE="$TEMP_ROTATED"
-        fi
-    fi
+if [[ -z "$CANVAS_W" || -z "$CANVAS_H" || "$CANVAS_W" -eq 0 || "$CANVAS_H" -eq 0 ]]; then
+    echo "Warning: could not read canvas dimensions from deviceInfo; defaulting to 1200x1600 (portrait)." >&2
+    CANVAS_W=1200
+    CANVAS_H=1600
 fi
+
+# Override canvas orientation if --frame-orientation was supplied.
+if [[ "$FRAME_ORIENTATION" == "landscape" && "$CANVAS_H" -gt "$CANVAS_W" ]]; then
+    _tmp="$CANVAS_W"; CANVAS_W="$CANVAS_H"; CANVAS_H="$_tmp"
+elif [[ "$FRAME_ORIENTATION" == "portrait" && "$CANVAS_W" -gt "$CANVAS_H" ]]; then
+    _tmp="$CANVAS_H"; CANVAS_H="$CANVAS_W"; CANVAS_W="$_tmp"
+fi
+
+# ---------------------------------------------------------------------------
+# Determine visual image dimensions (respecting EXIF orientation tags).
+# ---------------------------------------------------------------------------
+# EXIF orientations 5-8 indicate a 90°/270° transpose, so width and height
+# are visually swapped relative to the stored pixel dimensions.
+EXIF_ORIENT="$("${MAGICK_IDENTIFY[@]}" -format "%[EXIF:Orientation]" "$IMAGE_PATH" 2>/dev/null | head -n1)"
+IMG_W_RAW="$("${MAGICK_IDENTIFY[@]}" -format "%w" "$IMAGE_PATH" 2>/dev/null | head -n1)"
+IMG_H_RAW="$("${MAGICK_IDENTIFY[@]}" -format "%h" "$IMAGE_PATH" 2>/dev/null | head -n1)"
+
+if [[ -z "$IMG_W_RAW" || -z "$IMG_H_RAW" ]]; then
+    die "Could not read image dimensions from: $IMAGE_PATH"
+fi
+
+if [[ "$EXIF_ORIENT" =~ ^[5-8]$ ]]; then
+    IMG_W="$IMG_H_RAW"
+    IMG_H="$IMG_W_RAW"
+else
+    IMG_W="$IMG_W_RAW"
+    IMG_H="$IMG_H_RAW"
+fi
+
+echo "==> Image: ${IMG_W}x${IMG_H}  Canvas: ${CANVAS_W}x${CANVAS_H}"
+
+# ---------------------------------------------------------------------------
+# Build the ImageMagick processing pipeline.
+# ---------------------------------------------------------------------------
+# Rotate 90° CW when the image and frame orientations differ:
+#   landscape image on a portrait frame, or portrait image on a landscape frame.
+ROTATE=0
+if [[ "$IMG_W" -gt "$IMG_H" && "$CANVAS_H" -gt "$CANVAS_W" ]]; then
+    echo "==> Rotating landscape image 90° CW to fit portrait frame"
+    ROTATE=90
+elif [[ "$IMG_H" -gt "$IMG_W" && "$CANVAS_W" -gt "$CANVAS_H" ]]; then
+    echo "==> Rotating portrait image 90° CW to fit landscape frame"
+    ROTATE=90
+fi
+
+echo "==> Scaling and padding to ${CANVAS_W}x${CANVAS_H} (pad colour: ${PAD_COLOR})"
+
+MAGICK_ARGS=(-auto-orient)
+if [[ "$ROTATE" -ne 0 ]]; then
+    MAGICK_ARGS+=(-rotate "$ROTATE")
+fi
+MAGICK_ARGS+=(
+    -resize "${CANVAS_W}x${CANVAS_H}"
+    -background "$PAD_COLOR"
+    -gravity center
+    -extent "${CANVAS_W}x${CANVAS_H}"
+)
+
+TEMP_PROCESSED="$(mktemp /tmp/bloomin8-processed-XXXXXX.jpg)"
+"${MAGICK_CONVERT[@]}" "$IMAGE_PATH" "${MAGICK_ARGS[@]}" "$TEMP_PROCESSED"
+UPLOAD_IMAGE="$TEMP_PROCESSED"
 
 UPLOAD_URL="${BASE_URL}/upload?filename=${SAFE_FILENAME}&gallery=${SAFE_GALLERY}&show_now=${SHOW_NOW}"
 

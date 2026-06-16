@@ -77,7 +77,7 @@ derive_canvas_dimensions() {
     CANVAS_H="$(extract_json_number "height" "$LAST_BODY")"
 
     if [[ -z "$CANVAS_W" || -z "$CANVAS_H" || "$CANVAS_W" -eq 0 || "$CANVAS_H" -eq 0 ]]; then
-        echo "Warning: could not read canvas dimensions from deviceInfo; defaulting to 1200x1600." >&2
+        echo "Warning: could not read canvas dimensions from deviceInfo; defaulting to 1200x1600 before any orientation override." >&2
         CANVAS_W=1200
         CANVAS_H=1600
     fi

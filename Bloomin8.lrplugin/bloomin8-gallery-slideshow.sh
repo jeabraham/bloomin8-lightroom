@@ -131,18 +131,6 @@ prepare_image() {
     fi
 }
 
-require_command curl
-
-if command -v magick >/dev/null 2>&1; then
-    MAGICK_CONVERT=(magick)
-elif command -v convert >/dev/null 2>&1; then
-    MAGICK_CONVERT=(convert)
-else
-    die "ImageMagick is required for image processing.
-  macOS : brew install imagemagick
-  Debian: apt-get install imagemagick"
-fi
-
 HOST=""
 IMAGE_DIR="."
 GALLERY=""
@@ -206,6 +194,18 @@ done
 }
 
 [[ -d "$IMAGE_DIR" ]] || die "Image directory not found: $IMAGE_DIR"
+
+require_command curl
+
+if command -v magick >/dev/null 2>&1; then
+    MAGICK_CONVERT=(magick)
+elif command -v convert >/dev/null 2>&1; then
+    MAGICK_CONVERT=(convert)
+else
+    die "ImageMagick is required for image processing.
+  macOS : brew install imagemagick
+  Debian: apt-get install imagemagick"
+fi
 
 if [[ "$HOST" == http://* || "$HOST" == https://* ]]; then
     BASE_URL="${HOST%/}"

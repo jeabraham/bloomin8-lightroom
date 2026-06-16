@@ -101,8 +101,8 @@ There is no automated Lua test harness in this repository yet. Validate in Light
 
 The repository now includes a bash helper for proving the upload flow outside Lightroom first:
 
-- Script: `/home/runner/work/bloomin8-lightroom/bloomin8-lightroom/jeabraham/bloomin8-lightroom/scripts/bloomin8-upload-probe.sh`
-- Local API docs copy: `/home/runner/work/bloomin8-lightroom/bloomin8-lightroom/jeabraham/bloomin8-lightroom/bloomin8-docs/reference`
+- Script: `<repository-root>/scripts/bloomin8-upload-probe.sh`
+- Local API docs copy: `<repository-root>/bloomin8-docs/reference`
 
 Recommended flow:
 
@@ -110,7 +110,7 @@ Recommended flow:
 2. Probe the frame without uploading anything:
 
    ```bash
-   /home/runner/work/bloomin8-lightroom/bloomin8-lightroom/jeabraham/bloomin8-lightroom/scripts/bloomin8-upload-probe.sh \
+   ./scripts/bloomin8-upload-probe.sh \
      --host 192.168.1.25 \
      --probe-only
    ```
@@ -118,7 +118,7 @@ Recommended flow:
 3. Upload a single exported JPEG and ask the frame to display it immediately:
 
    ```bash
-   /home/runner/work/bloomin8-lightroom/bloomin8-lightroom/jeabraham/bloomin8-lightroom/scripts/bloomin8-upload-probe.sh \
+   ./scripts/bloomin8-upload-probe.sh \
      --host 192.168.1.25 \
      --image /absolute/path/to/exported-photo.jpg \
      --gallery default \

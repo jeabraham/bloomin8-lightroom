@@ -25,6 +25,8 @@ Options:
   --pad-color COLOR                  Background fill colour used when letterboxing (default: black)
   --connect-timeout N                Curl connect timeout in seconds (default: 5)
   --max-time N                       Curl total timeout in seconds (default: 60)
+  --preview                          Open the processed image in Preview.app before uploading
+                                     (macOS only; useful for verifying what will be sent to the frame)
   --help                             Show this message
 
 Image processing:
@@ -126,6 +128,7 @@ FRAME_ORIENTATION=""
 PAD_COLOR="black"
 CONNECT_TIMEOUT=5
 MAX_TIME=60
+OPEN_PREVIEW=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -172,6 +175,10 @@ while [[ $# -gt 0 ]]; do
         --max-time)
             MAX_TIME="${2:-}"
             shift 2
+            ;;
+        --preview)
+            OPEN_PREVIEW=1
+            shift
             ;;
         --help|-h)
             usage
@@ -316,6 +323,20 @@ MAGICK_ARGS+=(
 TEMP_PROCESSED="$(mktemp /tmp/bloomin8-processed-XXXXXX.jpg)"
 "${MAGICK_CONVERT[@]}" "$IMAGE_PATH" "${MAGICK_ARGS[@]}" "$TEMP_PROCESSED"
 UPLOAD_IMAGE="$TEMP_PROCESSED"
+
+# ---------------------------------------------------------------------------
+# Open processed image in Preview.app if requested (macOS only).
+# ---------------------------------------------------------------------------
+if [[ "$OPEN_PREVIEW" -eq 1 ]]; then
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        PREVIEW_COPY="/tmp/bloomin8-preview.jpg"
+        cp "$TEMP_PROCESSED" "$PREVIEW_COPY"
+        echo "==> Opening processed image in Preview: ${PREVIEW_COPY}"
+        open -a Preview "$PREVIEW_COPY"
+    else
+        echo "Warning: --preview is only supported on macOS; skipping." >&2
+    fi
+fi
 
 UPLOAD_URL="${BASE_URL}/upload?filename=${SAFE_FILENAME}&gallery=${SAFE_GALLERY}&show_now=${SHOW_NOW}"
 

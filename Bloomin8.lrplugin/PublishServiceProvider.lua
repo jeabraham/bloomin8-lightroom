@@ -48,7 +48,7 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                 },
             },
             f:static_text {
-                title = 'Files are rendered as JPEG with long edge constrained to 1600px.',
+                title = 'Files are rendered as JPEG. Long edge is constrained to 1600px (e.g. 1600×1200 landscape, 1200×1600 portrait).',
                 fill_horizontal = 1,
             },
         },

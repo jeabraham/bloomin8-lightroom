@@ -212,7 +212,13 @@ if [[ "$PROBE_ONLY" -eq 0 ]]; then
     [[ -f "$IMAGE_PATH" ]] || die "Image file not found: $IMAGE_PATH"
 
     if [[ -z "$REMOTE_FILENAME" ]]; then
-        REMOTE_FILENAME="$(basename "$IMAGE_PATH")"
+        # Append a timestamp to the remote filename so every run uploads a
+        # distinct file and the frame is guaranteed to render fresh content.
+        local_stem="$(basename "$IMAGE_PATH")"
+        local_ext="${local_stem##*.}"
+        local_base="${local_stem%.*}"
+        ts="$(date +%Y%m%dT%H%M%S)"
+        REMOTE_FILENAME="${local_base}_${ts}.${local_ext}"
     fi
 
     SAFE_FILENAME="$(sanitize_component "$REMOTE_FILENAME")"
@@ -294,19 +300,13 @@ echo "==> Image: ${IMG_W}x${IMG_H}  Canvas: ${CANVAS_W}x${CANVAS_H}"
 # ---------------------------------------------------------------------------
 # Build the ImageMagick processing pipeline.
 # ---------------------------------------------------------------------------
-# Auto-rotate 90° CW only when the frame orientation was NOT explicitly set.
-# When --frame-orientation is specified the user has declared the canvas they
-# want; the image is simply scaled to fit with letterbox/pillarbox padding and
-# no rotation is performed.
+# Rotate 90° CW only when a portrait image needs to fill a landscape canvas.
+# A landscape image on a portrait canvas is always letterboxed (scaled to fit
+# the canvas width with black padding above and below) — never rotated.
 ROTATE=0
-if [[ -z "$FRAME_ORIENTATION" ]]; then
-    if [[ "$IMG_W" -gt "$IMG_H" && "$CANVAS_H" -gt "$CANVAS_W" ]]; then
-        echo "==> Rotating landscape image 90° CW to fit portrait frame"
-        ROTATE=90
-    elif [[ "$IMG_H" -gt "$IMG_W" && "$CANVAS_W" -gt "$CANVAS_H" ]]; then
-        echo "==> Rotating portrait image 90° CW to fit landscape frame"
-        ROTATE=90
-    fi
+if [[ "$IMG_H" -gt "$IMG_W" && "$CANVAS_W" -gt "$CANVAS_H" ]]; then
+    echo "==> Rotating portrait image 90° CW to fit landscape frame"
+    ROTATE=90
 fi
 
 echo "==> Scaling and padding to ${CANVAS_W}x${CANVAS_H} (pad colour: ${PAD_COLOR})"

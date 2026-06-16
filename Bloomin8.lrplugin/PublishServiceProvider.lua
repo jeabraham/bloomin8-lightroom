@@ -7,6 +7,7 @@ local LrView = import 'LrView'
 local bind = LrView.bind
 
 local PublishServiceProvider = {}
+local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
 
 PublishServiceProvider.supportsIncrementalPublish = 'only'
 
@@ -72,12 +73,38 @@ local function ensureDirectory(path)
     return true
 end
 
+local function copySlideshowHelper(destinationDirectory)
+    local helperSourcePath = LrPathUtils.child(_PLUGIN.path, SLIDESHOW_HELPER_NAME)
+    local helperDestinationPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
+
+    if LrFileUtils.exists(helperSourcePath) ~= 'file' then
+        return false, string.format('Missing slideshow helper script in plugin bundle: %s', helperSourcePath)
+    end
+
+    if LrFileUtils.exists(helperDestinationPath) == 'file' then
+        LrFileUtils.delete(helperDestinationPath)
+    end
+
+    local copied = LrFileUtils.copy(helperSourcePath, helperDestinationPath)
+    if not copied then
+        return false, string.format('Failed copying slideshow helper to %s', helperDestinationPath)
+    end
+
+    return true
+end
+
 function PublishServiceProvider.processRenderedPhotos(functionContext, exportContext)
     local exportSession = exportContext.exportSession
     local exportSettings = assert(exportContext.propertyTable)
     local destinationDirectory = exportSettings.bloomin8LocalDirectory
 
     local ok, err = ensureDirectory(destinationDirectory)
+    if not ok then
+        LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
+        LrErrors.throwUserError(err)
+    end
+
+    ok, err = copySlideshowHelper(destinationDirectory)
     if not ok then
         LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
         LrErrors.throwUserError(err)

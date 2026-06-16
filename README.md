@@ -25,6 +25,7 @@ Implemented:
 - JPEG render defaults with long-edge resize constrained to **1600px**
 - Copy of rendered files into the configured local publish directory
 - Bash probe script for validating the frame API outside Lightroom: `<repository-root>/scripts/bloomin8-upload-probe.sh`
+- Gallery slideshow helper copied into the local publish directory on publish: `bloomin8-gallery-slideshow.sh`
 
 Not implemented yet:
 - Bloomin8 authentication/session handling
@@ -150,6 +151,33 @@ padding logic, comparing the image's rendered pixel dimensions to the device's
 reported `width`/`height` values.
 
 If this shell-level probe works against the real device, the next code change should be implementing the same request flow in Lua.
+
+---
+
+## Step 5 testing helper (manual)
+
+Each Lightroom publish now also copies `bloomin8-gallery-slideshow.sh` into the
+local publish directory alongside the exported JPEGs.
+
+Run it from that directory to upload every `*.jpg`/`*.jpeg` file into one frame
+gallery and then ask the frame itself to run the slideshow:
+
+```bash
+bash ./bloomin8-gallery-slideshow.sh \
+  --host 192.168.1.25
+```
+
+Optional flags:
+- `--gallery NAME` to pick the device gallery name explicitly
+- `--duration SECONDS` to control the slideshow interval sent to `POST /show`
+- `--image-dir PATH` if you want to run the helper from somewhere other than the publish directory
+- `--frame-orientation portrait|landscape` to override the orientation inferred from `/deviceInfo`
+
+Current helper behavior:
+- calls `GET /deviceInfo`
+- deletes and recreates the target gallery so the slideshow contains exactly the current exported set
+- uploads each JPEG into that gallery
+- calls `POST /show` with `play_type: 1` so the frame iterates the gallery on-device
 
 ---
 

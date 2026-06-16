@@ -5,11 +5,11 @@ return {
     LrPluginName = 'Bloomin8 Publish Service',
     LrPluginInfoUrl = 'https://bloomin8.readme.io/reference/get_deviceinfo',
 
-	LrExportServiceProvider = {
-	   title = 'Bloomin8 Publish Service',
-	   file = 'PublishServiceProvider.lua',
-	   small_icon = 'small_icon.png',
-	},
+    LrPublishServiceProvider = {
+        title = 'Bloomin8 Publish Service',
+        file = 'PublishServiceProvider.lua',
+        small_icon = 'small_icon.png',
+    },
 
     VERSION = {
         major = 0,

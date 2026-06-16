@@ -85,16 +85,22 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         local success, pathOrMessage = rendition:waitForRender()
 
         if not success then
-            rendition:uploadFailed(pathOrMessage)
+            if rendition.uploadFailed then
+                rendition:uploadFailed(pathOrMessage)
+            end
         else
             local outputFilename = LrPathUtils.leafName(pathOrMessage)
             local destinationPath = LrPathUtils.child(destinationDirectory, outputFilename)
             local copied = LrFileUtils.copy(pathOrMessage, destinationPath)
 
             if copied then
-                rendition:uploadSucceeded()
+                if rendition.uploadSucceeded then
+                    rendition:uploadSucceeded(destinationPath)
+                end
             else
-                rendition:uploadFailed(string.format('Failed copying %s to %s', pathOrMessage, destinationPath))
+                if rendition.uploadFailed then
+                    rendition:uploadFailed(string.format('Failed copying %s to %s', pathOrMessage, destinationPath))
+                end
             end
         end
     end

@@ -142,7 +142,7 @@ if [[ "$PROBE_ONLY" -eq 0 ]]; then
 
     SAFE_FILENAME="$(sanitize_component "$REMOTE_FILENAME")"
 
-    case "${IMAGE_PATH,,}" in
+    case "$(printf '%s' "$IMAGE_PATH" | tr '[:upper:]' '[:lower:]')" in
         *.jpg|*.jpeg) ;;
         *)
             echo "Warning: upload endpoint is documented for JPEG input; continuing with: $IMAGE_PATH" >&2

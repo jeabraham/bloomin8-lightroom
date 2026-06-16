@@ -294,15 +294,19 @@ echo "==> Image: ${IMG_W}x${IMG_H}  Canvas: ${CANVAS_W}x${CANVAS_H}"
 # ---------------------------------------------------------------------------
 # Build the ImageMagick processing pipeline.
 # ---------------------------------------------------------------------------
-# Rotate 90° CW when the image and frame orientations differ:
-#   landscape image on a portrait frame, or portrait image on a landscape frame.
+# Auto-rotate 90° CW only when the frame orientation was NOT explicitly set.
+# When --frame-orientation is specified the user has declared the canvas they
+# want; the image is simply scaled to fit with letterbox/pillarbox padding and
+# no rotation is performed.
 ROTATE=0
-if [[ "$IMG_W" -gt "$IMG_H" && "$CANVAS_H" -gt "$CANVAS_W" ]]; then
-    echo "==> Rotating landscape image 90° CW to fit portrait frame"
-    ROTATE=90
-elif [[ "$IMG_H" -gt "$IMG_W" && "$CANVAS_W" -gt "$CANVAS_H" ]]; then
-    echo "==> Rotating portrait image 90° CW to fit landscape frame"
-    ROTATE=90
+if [[ -z "$FRAME_ORIENTATION" ]]; then
+    if [[ "$IMG_W" -gt "$IMG_H" && "$CANVAS_H" -gt "$CANVAS_W" ]]; then
+        echo "==> Rotating landscape image 90° CW to fit portrait frame"
+        ROTATE=90
+    elif [[ "$IMG_H" -gt "$IMG_W" && "$CANVAS_W" -gt "$CANVAS_H" ]]; then
+        echo "==> Rotating portrait image 90° CW to fit landscape frame"
+        ROTATE=90
+    fi
 fi
 
 echo "==> Scaling and padding to ${CANVAS_W}x${CANVAS_H} (pad colour: ${PAD_COLOR})"
@@ -320,7 +324,9 @@ MAGICK_ARGS+=(
     -extent "${CANVAS_W}x${CANVAS_H}"
 )
 
-TEMP_PROCESSED="$(mktemp /tmp/bloomin8-processed-XXXXXX.jpg)"
+# mktemp on macOS requires Xs at the very end of the template, so we cannot
+# embed a .jpg suffix.  Build a unique name from the process ID and $RANDOM.
+TEMP_PROCESSED="/tmp/bloomin8-processed-$$.${RANDOM}.jpg"
 "${MAGICK_CONVERT[@]}" "$IMAGE_PATH" "${MAGICK_ARGS[@]}" "$TEMP_PROCESSED"
 UPLOAD_IMAGE="$TEMP_PROCESSED"
 

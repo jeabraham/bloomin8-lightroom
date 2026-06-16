@@ -35,10 +35,11 @@ Image processing:
   The script always produces a temporary JPEG that exactly matches the device
   canvas dimensions reported by /deviceInfo (e.g. 1200x1600 for portrait).
 
-  If the image orientation (portrait vs landscape) differs from the frame
-  orientation, the image is first rotated 90° clockwise.  It is then scaled
-  to fit within the canvas while preserving aspect ratio, and any remaining
-  canvas area is filled with --pad-color (letterboxing / pillarboxing).
+  Images are scaled to fit the canvas (portrait: 1200×1600, landscape:
+  1600×1200) and padded with --pad-color.  No rotation is applied on the Mac.
+  When the frame orientation is landscape a 90° CW rotation is applied only
+  to the copy sent to the frame — the copy opened in --preview is always
+  shown unrotated so it looks correct on your monitor.
 
   Use --frame-orientation to override the orientation inferred from the device
   (useful when the device API reports stale or unexpected dimensions).
@@ -110,11 +111,11 @@ else
 fi
 
 TEMP_PROCESSED=""
+TEMP_ROTATED=""
 
 cleanup() {
-    if [[ -n "$TEMP_PROCESSED" ]]; then
-        rm -f "$TEMP_PROCESSED"
-    fi
+    [[ -n "$TEMP_PROCESSED" ]] && rm -f "$TEMP_PROCESSED"
+    [[ -n "$TEMP_ROTATED" ]] && rm -f "$TEMP_ROTATED"
 }
 trap cleanup EXIT
 
@@ -298,26 +299,25 @@ fi
 echo "==> Image: ${IMG_W}x${IMG_H}  Canvas: ${CANVAS_W}x${CANVAS_H}"
 
 # ---------------------------------------------------------------------------
-# Build the ImageMagick processing pipeline.
+# Determine whether the frame expects a rotated image for upload.
+# A landscape frame (CANVAS_W > CANVAS_H) requires every image to be rotated
+# 90° CW before upload so the firmware renders it correctly.  The canvas
+# dimensions still drive the scale/pad step (1600×1200 for landscape).
 # ---------------------------------------------------------------------------
-# Rotate 90° CW only when a portrait image needs to fill a landscape canvas.
-# A landscape image on a portrait canvas is always letterboxed (scaled to fit
-# the canvas width with black padding above and below) — never rotated.
-ROTATE=0
-if [[ "$IMG_H" -gt "$IMG_W" && "$CANVAS_W" -gt "$CANVAS_H" ]]; then
-    echo "==> Rotating portrait image 90° CW to fit landscape frame"
-    ROTATE=90
+FRAME_IS_LANDSCAPE=0
+if [[ "$CANVAS_W" -gt "$CANVAS_H" ]]; then
+    FRAME_IS_LANDSCAPE=1
 fi
 
+# ---------------------------------------------------------------------------
+# Build the ImageMagick processing pipeline.
+# Scale and pad to the canvas dimensions; no rotation here — the Mac display
+# is not rotated.
+# ---------------------------------------------------------------------------
 echo "==> Scaling and padding to ${CANVAS_W}x${CANVAS_H} (pad colour: ${PAD_COLOR})"
 
-MAGICK_ARGS=(-auto-orient)
-if [[ "$ROTATE" -ne 0 ]]; then
-    # +repage clears the virtual canvas geometry that -rotate leaves behind,
-    # ensuring -resize and -extent operate on the actual pixel dimensions.
-    MAGICK_ARGS+=(-rotate "$ROTATE" +repage)
-fi
-MAGICK_ARGS+=(
+MAGICK_ARGS=(
+    -auto-orient
     -resize "${CANVAS_W}x${CANVAS_H}"
     -background "$PAD_COLOR"
     -gravity center
@@ -330,8 +330,20 @@ TEMP_PROCESSED="/tmp/bloomin8-processed-$$.${RANDOM}.jpg"
 "${MAGICK_CONVERT[@]}" "$IMAGE_PATH" "${MAGICK_ARGS[@]}" "$TEMP_PROCESSED"
 UPLOAD_IMAGE="$TEMP_PROCESSED"
 
+# For landscape frames the device firmware expects the image rotated 90° CW.
+# Produce the rotated copy now (before potentially handing TEMP_PROCESSED off
+# to Preview) so both files exist at the same time.
+if [[ "$FRAME_IS_LANDSCAPE" -eq 1 ]]; then
+    TEMP_ROTATED="/tmp/bloomin8-rotated-$$.${RANDOM}.jpg"
+    echo "==> Rotating 90° CW for landscape frame upload"
+    # +repage clears the virtual canvas geometry that -rotate leaves behind.
+    "${MAGICK_CONVERT[@]}" "$TEMP_PROCESSED" -rotate 90 +repage "$TEMP_ROTATED"
+    UPLOAD_IMAGE="$TEMP_ROTATED"
+fi
+
 # ---------------------------------------------------------------------------
-# Open processed image in Preview.app if requested (macOS only).
+# Open the unrotated processed image in Preview.app if requested (macOS only).
+# The user's monitor is not rotated, so we always show TEMP_PROCESSED here.
 # ---------------------------------------------------------------------------
 if [[ "$OPEN_PREVIEW" -eq 1 ]]; then
     if [[ "$(uname -s)" == "Darwin" ]]; then

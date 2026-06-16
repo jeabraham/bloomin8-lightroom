@@ -319,6 +319,21 @@ UPLOAD_IMAGE="$TEMP_PROCESSED"
 
 UPLOAD_URL="${BASE_URL}/upload?filename=${SAFE_FILENAME}&gallery=${SAFE_GALLERY}&show_now=${SHOW_NOW}"
 
+# Delete any existing copy of the file so the device renders fresh from the
+# new upload rather than serving a cached version of the old render.
+DELETE_URL="${BASE_URL}/image/delete?image=${SAFE_FILENAME}&gallery=${SAFE_GALLERY}"
+echo "==> POST ${DELETE_URL}"
+perform_request \
+    -H 'Accept: application/json' \
+    -X POST \
+    "$DELETE_URL"
+echo "HTTP ${LAST_STATUS}"
+if [[ "$LAST_STATUS" == "200" ]]; then
+    echo "Existing file deleted."
+else
+    echo "(File did not exist on device or delete is not supported; continuing.)"
+fi
+
 echo
 echo "==> POST ${UPLOAD_URL}"
 perform_request \

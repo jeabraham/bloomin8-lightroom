@@ -329,10 +329,11 @@ UPLOAD_IMAGE="$TEMP_PROCESSED"
 # ---------------------------------------------------------------------------
 if [[ "$OPEN_PREVIEW" -eq 1 ]]; then
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        PREVIEW_COPY="/tmp/bloomin8-preview.jpg"
-        cp "$TEMP_PROCESSED" "$PREVIEW_COPY"
-        echo "==> Opening processed image in Preview: ${PREVIEW_COPY}"
-        open -a Preview "$PREVIEW_COPY"
+        echo "==> Opening processed image in Preview: ${TEMP_PROCESSED}"
+        open -a Preview "$TEMP_PROCESSED"
+        # Disable the EXIT cleanup for this file so Preview can load it;
+        # macOS will remove stale /tmp files on restart.
+        TEMP_PROCESSED=""
     else
         echo "Warning: --preview is only supported on macOS; skipping." >&2
     fi

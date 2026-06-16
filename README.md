@@ -136,6 +136,16 @@ Current docs indicate:
 - `POST /upload` accepts `multipart/form-data` with a single `image` part
 - `POST /upload` uses query parameters `filename`, optional `gallery`, and optional `show_now`
 - a successful upload returns HTTP 200 with JSON containing `status: 100` and a stored `path`
+- `status: 0` from the upload endpoint indicates an on-device render failure (not an HTTP error)
+
+**Orientation note (confirmed with real device):**
+The device reports `width:1200, height:1600` regardless of its physical mounting
+orientation.  When the frame is physically in landscape, a landscape photo
+(wider than tall) must be rotated 90° before upload so the device renders it
+correctly.  The probe script handles this automatically via `sips` on macOS.
+The future Lightroom plugin upload step must apply the same rotation logic,
+comparing the image's rendered pixel dimensions to the device's reported
+`width`/`height` values.
 
 If this shell-level probe works against the real device, the next code change should be implementing the same request flow in Lua.
 

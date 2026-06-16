@@ -376,5 +376,28 @@ printf '%s\n' "$LAST_BODY"
 [[ "$LAST_STATUS" == "200" ]] || die "upload request failed"
 grep -Eq '"status"[[:space:]]*:[[:space:]]*100' <<<"$LAST_BODY" || die "upload did not return firmware success status 100"
 
+# ---------------------------------------------------------------------------
+# If --show-now was requested, follow up with an explicit POST /show so the
+# frame re-renders the freshly uploaded file.  The show_now=1 upload flag may
+# not trigger a re-render when the same filename is already in the display
+# queue; the /show endpoint with an explicit image path is more reliable.
+# ---------------------------------------------------------------------------
+if [[ "$SHOW_NOW" -eq 1 ]]; then
+    SHOW_URL="${BASE_URL}/show"
+    IMAGE_DEVICE_PATH="/gallerys/${SAFE_GALLERY}/${SAFE_FILENAME}"
+    SHOW_BODY="{\"play_type\":0,\"image\":\"${IMAGE_DEVICE_PATH}\"}"
+    echo
+    echo "==> POST ${SHOW_URL}  (play_type=0, image=${IMAGE_DEVICE_PATH})"
+    perform_request \
+        -H 'Accept: application/json' \
+        -H 'Content-Type: application/json' \
+        -X POST \
+        -d "$SHOW_BODY" \
+        "$SHOW_URL"
+    echo "HTTP ${LAST_STATUS}"
+    printf '%s\n' "$LAST_BODY"
+    [[ "$LAST_STATUS" == "200" ]] || echo "Warning: /show request returned HTTP ${LAST_STATUS}; frame may not refresh." >&2
+fi
+
 echo
 echo "Upload probe succeeded."

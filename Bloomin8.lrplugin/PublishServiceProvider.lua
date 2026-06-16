@@ -23,7 +23,7 @@ function PublishServiceProvider.startDialog(propertyTable)
     propertyTable.LR_format = 'JPEG'
     propertyTable.LR_jpeg_quality = propertyTable.LR_jpeg_quality or 0.85
     propertyTable.LR_size_doConstrain = true
-    propertyTable.LR_size_resizeType = 'wh'
+    propertyTable.LR_size_resizeType = 'dimensions'
     propertyTable.LR_size_maxWidth = 1600
     propertyTable.LR_size_maxHeight = 1200
     propertyTable.LR_size_units = 'pixels'

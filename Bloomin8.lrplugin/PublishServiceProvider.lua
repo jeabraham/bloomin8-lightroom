@@ -15,10 +15,20 @@ PublishServiceProvider.small_icon = 'small_icon.png'
 
 PublishServiceProvider.exportPresetFields = {
     { key = 'bloomin8LocalDirectory', default = '' },
+    { key = 'bloomin8DeviceHost',     default = '' },
+    { key = 'bloomin8GalleryName',    default = '' },
+    { key = 'bloomin8Duration',       default = '120' },
+    { key = 'bloomin8RandomOrder',    default = false },
 }
 
 function PublishServiceProvider.startDialog(propertyTable)
     propertyTable.bloomin8LocalDirectory = propertyTable.bloomin8LocalDirectory or ''
+    propertyTable.bloomin8DeviceHost     = propertyTable.bloomin8DeviceHost     or ''
+    propertyTable.bloomin8GalleryName    = propertyTable.bloomin8GalleryName    or ''
+    propertyTable.bloomin8Duration       = propertyTable.bloomin8Duration       or '120'
+    if propertyTable.bloomin8RandomOrder == nil then
+        propertyTable.bloomin8RandomOrder = false
+    end
 
     propertyTable.LR_format = 'JPEG'
     propertyTable.LR_jpeg_quality = propertyTable.LR_jpeg_quality or 0.85
@@ -51,6 +61,80 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
             f:static_text {
                 title = 'Files are rendered as JPEG, fit within 1600×1200px (Width & Height).',
                 fill_horizontal = 1,
+            },
+        },
+        {
+            title = 'Bloomin8 Publish (Step 2: Device Upload & Slideshow)',
+            synopsis = bind 'bloomin8DeviceHost',
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text {
+                    title = 'Device host:',
+                    alignment = 'right',
+                    width = 160,
+                },
+                f:edit_field {
+                    value = bind 'bloomin8DeviceHost',
+                    immediate = true,
+                    width_in_chars = 30,
+                },
+            },
+            f:static_text {
+                title = 'IP address or hostname of the Bloomin8 frame. Leave blank to skip upload.',
+                fill_horizontal = 1,
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text {
+                    title = 'Gallery name:',
+                    alignment = 'right',
+                    width = 160,
+                },
+                f:edit_field {
+                    value = bind 'bloomin8GalleryName',
+                    immediate = true,
+                    width_in_chars = 30,
+                },
+            },
+            f:static_text {
+                title = 'Gallery name on the device. Defaults to the local publish directory name.',
+                fill_horizontal = 1,
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text {
+                    title = 'Duration (seconds):',
+                    alignment = 'right',
+                    width = 160,
+                },
+                f:edit_field {
+                    value = bind 'bloomin8Duration',
+                    immediate = true,
+                    width_in_chars = 10,
+                },
+            },
+            f:static_text {
+                title = 'Seconds between pictures in the slideshow.',
+                fill_horizontal = 1,
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text {
+                    title = 'Playback order:',
+                    alignment = 'right',
+                    width = 160,
+                },
+                f:popup_menu {
+                    value = bind 'bloomin8RandomOrder',
+                    items = {
+                        { title = 'Sequential', value = false },
+                        { title = 'Random',     value = true  },
+                    },
+                },
             },
         },
     }
@@ -131,6 +215,36 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
                     rendition:uploadFailed(string.format('Failed copying %s to %s', pathOrMessage, destinationPath))
                 end
             end
+        end
+    end
+
+    local deviceHost = exportSettings.bloomin8DeviceHost or ''
+    if deviceHost ~= '' then
+        local helperPath   = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
+        local galleryName  = exportSettings.bloomin8GalleryName or ''
+        local duration     = exportSettings.bloomin8Duration or '120'
+        local randomOrder  = exportSettings.bloomin8RandomOrder
+
+        local cmd = string.format(
+            'bash %q --host %q --image-dir %q --duration %q',
+            helperPath, deviceHost, destinationDirectory, duration
+        )
+
+        if galleryName ~= '' then
+            cmd = cmd .. string.format(' --gallery %q', galleryName)
+        end
+
+        if randomOrder then
+            cmd = cmd .. ' --random'
+        end
+
+        local exitCode = os.execute(cmd)
+        if exitCode ~= 0 then
+            local msg = string.format(
+                'Slideshow upload finished with errors (exit code %s).\nCheck the Lightroom log for details.',
+                tostring(exitCode)
+            )
+            LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
         end
     end
 end

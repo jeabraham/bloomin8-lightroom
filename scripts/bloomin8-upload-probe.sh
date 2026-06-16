@@ -302,10 +302,12 @@ echo "==> Scaling and padding to ${CANVAS_W}x${CANVAS_H} (pad colour: ${PAD_COLO
 
 MAGICK_ARGS=(-auto-orient)
 if [[ "$ROTATE" -ne 0 ]]; then
-    MAGICK_ARGS+=(-rotate "$ROTATE")
+    # +repage clears the virtual canvas geometry that -rotate leaves behind,
+    # ensuring -resize and -extent operate on the actual pixel dimensions.
+    MAGICK_ARGS+=(-rotate "$ROTATE" +repage)
 fi
 MAGICK_ARGS+=(
-    -resize "${CANVAS_W}x${CANVAS_H}>"
+    -resize "${CANVAS_W}x${CANVAS_H}"
     -background "$PAD_COLOR"
     -gravity center
     -extent "${CANVAS_W}x${CANVAS_H}"

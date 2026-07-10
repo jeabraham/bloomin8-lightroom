@@ -29,7 +29,7 @@ and you can set `BLOOMIN8_MAGICK_BIN` to an absolute executable path if needed.
 
 ## Current implementation status
 
-This repository now implements **Step 1** (foundation + local publish pipeline).
+This repository now implements **Step 1** (foundation + local publish pipeline) and publish-state tracking.
 
 Implemented:
 - Lightroom plugin bundle scaffold: `<repository-root>/Bloomin8.lrplugin`
@@ -37,15 +37,18 @@ Implemented:
 - Export/publish provider (`PublishServiceProvider.lua`)
 - Local directory setting in plugin UI
 - JPEG render defaults with long-edge resize constrained to **1600px**
-- Copy of rendered files into the configured local publish directory
+- Copy of rendered files into the configured local publish directory (overwrites on re-publish)
 - Bash probe script for validating the frame API outside Lightroom: `<repository-root>/scripts/bloomin8-upload-probe.sh`
 - Gallery slideshow helper copied into the local publish directory on publish: `bloomin8-gallery-slideshow.sh`
+- Publish-state tracking: Lightroom marks each photo as Published after copy succeeds
+- Modified-photo re-publish: existing local file is replaced and Lightroom status updated
+- Deleted-photo handling: removing a photo from the published collection deletes the local file
+  and, when a device host is configured, calls `POST /image/delete` on the frame
 
 Not implemented yet:
 - Bloomin8 authentication/session handling
 - Device discovery and selection
-- Upload API call flow
-- Publish state sync and retry queue
+- Direct per-file upload API call from Lightroom (current workflow uses the bash slideshow helper)
 
 ---
 

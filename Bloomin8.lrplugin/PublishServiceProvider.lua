@@ -322,16 +322,21 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         else
             local outputFilename = LrPathUtils.leafName(pathOrMessage)
             local destinationPath = LrPathUtils.child(destinationDirectory, outputFilename)
+
+            -- Delete existing file before copy so re-publishing a modified photo
+            -- always replaces the local copy (LrFileUtils.copy does not overwrite).
+            if LrFileUtils.exists(destinationPath) == 'file' then
+                LrFileUtils.delete(destinationPath)
+            end
+
             local copied = LrFileUtils.copy(pathOrMessage, destinationPath)
 
             if copied then
-                if rendition.uploadSucceeded then
-                    rendition:uploadSucceeded(destinationPath)
-                end
+                -- Store the destination path as the published photo ID so that
+                -- deletePublishedPhotos can locate and remove the file later.
+                rendition:uploadSucceeded(destinationPath)
             else
-                if rendition.uploadFailed then
-                    rendition:uploadFailed(string.format('Failed copying %s to %s', pathOrMessage, destinationPath))
-                end
+                rendition:uploadFailed(string.format('Failed copying %s to %s', pathOrMessage, destinationPath))
             end
         end
     end
@@ -371,6 +376,56 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             )
             LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
         end
+    end
+end
+
+-- Called by Lightroom when photos are removed from the published collection.
+-- photoId is the local destination path stored by rendition:uploadSucceeded.
+function PublishServiceProvider.deletePublishedPhotos(functionContext, publishSettings, arrayOfPhotoIds)
+    local deviceHost = publishSettings.bloomin8DeviceHost or ''
+    local errors = {}
+
+    for _, photoId in ipairs(arrayOfPhotoIds) do
+        -- Delete local file.
+        if LrFileUtils.exists(photoId) == 'file' then
+            local deleted = LrFileUtils.delete(photoId)
+            if not deleted then
+                errors[#errors + 1] = string.format('Failed to delete local file: %s', photoId)
+            end
+        end
+
+        -- Delete from device if a host is configured.
+        -- Use curl --data-urlencode so filenames with spaces or special chars are safe.
+        if deviceHost ~= '' then
+            local filename  = LrPathUtils.leafName(photoId)
+            local galleryName = LrPathUtils.leafName(LrPathUtils.parent(photoId))
+            local baseUrl   = string.format('http://%s/image/delete', deviceHost)
+            local curlCmd   = string.format(
+                'curl -sf -X POST -G --data-urlencode %q --data-urlencode %q %q',
+                'image=' .. filename,
+                'gallery=' .. galleryName,
+                baseUrl
+            )
+            local handle = io.popen('{ ' .. curlCmd .. '; }; printf "\\nBLOOMIN8_EXIT:%d" $?', 'r')
+            local output = handle and handle:read('*all') or ''
+            if handle then handle:close() end
+            local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
+            if exitCode == nil or exitCode ~= 0 then
+                errors[#errors + 1] = string.format(
+                    'Failed to delete %s from device gallery %s (curl exit %s)',
+                    filename, galleryName, tostring(exitCode)
+                )
+            end
+        end
+    end
+
+    if #errors > 0 then
+        LrDialogs.message(
+            'Bloomin8 Publish Service',
+            'Some deletions failed:\n' .. table.concat(errors, '\n') ..
+                '\n' .. LIGHTROOM_LOG_HINT_MULTILINE,
+            'warning'
+        )
     end
 end
 

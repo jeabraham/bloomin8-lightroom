@@ -238,17 +238,18 @@ local function writeSlideshowWrapper(destinationDirectory, exportSettings)
     local cmd = buildSlideshowCommand(helperPath, exportSettings, destinationDirectory)
     local file, openErr = io.open(wrapperPath, 'w')
     if not file then
-        return false, string.format('Failed creating slideshow wrapper %s: %s', wrapperPath, tostring(openErr))
+        return false, nil, string.format('Failed creating slideshow wrapper %s: %s', wrapperPath, tostring(openErr))
     end
 
-    local okWrite, writeErr = file:write('#!/usr/bin/env bash\n' .. cmd .. ' "$@"\n')
+    local wrapperContent = string.format('#!/usr/bin/env bash\n%s "$@"\n', cmd)
+    local okWrite, writeErr = file:write(wrapperContent)
     file:close()
 
     if not okWrite then
-        return false, string.format('Failed writing slideshow wrapper %s: %s', wrapperPath, tostring(writeErr))
+        return false, nil, string.format('Failed writing slideshow wrapper %s: %s', wrapperPath, tostring(writeErr))
     end
 
-    return true, nil, wrapperPath
+    return true, wrapperPath, nil
 end
 
 local function lightroomLogHint()
@@ -299,7 +300,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
     local deviceHost = exportSettings.bloomin8DeviceHost or ''
     if deviceHost ~= '' then
         local wrapperPath
-        ok, err, wrapperPath = writeSlideshowWrapper(destinationDirectory, exportSettings)
+        ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, exportSettings)
         if not ok then
             LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
             LrErrors.throwUserError(err)

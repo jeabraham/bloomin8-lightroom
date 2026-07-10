@@ -151,8 +151,8 @@ shuffle_images() {
 prepare_image() {
     local source_path="$1"
     local output_stem="$2"
-    local processed_path="${TEMP_DIR}/${output_stem}.jpg"
-    local rotated_path="${TEMP_DIR}/${output_stem}-rotated.jpg"
+    local processed_path="${PROCESSED_DIR}/${output_stem}.jpg"
+    local rotated_path="${PROCESSED_DIR}/${output_stem}-rotated.jpg"
 
     echo "==> Preparing $(basename "$source_path") for ${CANVAS_W}x${CANVAS_H}" >&2
     "${MAGICK_CONVERT[@]}" \
@@ -285,8 +285,8 @@ case "$DURATION" in
 esac
 [[ "$DURATION" -gt 0 ]] || die "--duration must be a positive integer"
 
-TEMP_DIR="$(mktemp -d "/tmp/bloomin8-gallery-slideshow.XXXXXX")"
-trap 'rm -rf "$TEMP_DIR"' EXIT
+PROCESSED_DIR="${IMAGE_DIR}/processed"
+mkdir -p "$PROCESSED_DIR"
 
 echo "==> GET ${BASE_URL}/deviceInfo"
 perform_request \
@@ -330,7 +330,8 @@ for image_path in "${IMAGE_FILES[@]}"; do
     [[ -f "$prepared_image" ]] || die "Image preparation failed (ImageMagick error?) for: $image_path"
 
     echo
-    echo "==> Uploading temp file: $(ls -la "$prepared_image")"
+    echo "==> Uploading processed file:"
+    ls -la "$prepared_image"
     echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
     perform_request \
         -H 'Accept: application/json' \

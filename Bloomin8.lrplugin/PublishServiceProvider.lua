@@ -9,6 +9,8 @@ local bind = LrView.bind
 local PublishServiceProvider = {}
 local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
 local SLIDESHOW_WRAPPER_NAME = 'bloomin8-run-slideshow.sh'
+local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check Lightroom logs: macOS ~/Library/Logs/Adobe/Lightroom/ ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\'
+local LIGHTROOM_LOG_HINT_MULTILINE = 'Lightroom logs:\n  macOS: ~/Library/Logs/Adobe/Lightroom/\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\'
 
 PublishServiceProvider.supportsIncrementalPublish = 'only'
 
@@ -161,7 +163,7 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                 fill_horizontal = 1,
             },
             f:static_text {
-                title = 'If upload fails, check Lightroom logs: macOS ~/Library/Logs/Adobe/Lightroom/ ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\',
+                title = LIGHTROOM_LOG_HINT_INLINE,
                 fill_horizontal = 1,
             },
         },
@@ -252,10 +254,6 @@ local function writeSlideshowWrapper(destinationDirectory, exportSettings)
     return true, wrapperPath, nil
 end
 
-local function lightroomLogHint()
-    return 'Lightroom logs:\n  macOS: ~/Library/Logs/Adobe/Lightroom/\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\'
-end
-
 function PublishServiceProvider.processRenderedPhotos(functionContext, exportContext)
     local exportSession = exportContext.exportSession
     local exportSettings = assert(exportContext.propertyTable)
@@ -306,6 +304,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             LrErrors.throwUserError(err)
         end
 
+        -- Wrapper is primarily for manual re-runs from Terminal with persisted settings.
         local cmd = string.format('bash %q', wrapperPath)
 
         -- os.execute is unavailable in Lightroom's Lua sandbox; use io.popen
@@ -319,7 +318,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             local msg = string.format(
                 'Slideshow upload finished with errors (exit code %s).\nCheck the Lightroom log for details.\n%s',
                 tostring(exitCode),
-                lightroomLogHint()
+                LIGHTROOM_LOG_HINT_MULTILINE
             )
             LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
         end

@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-PATH="/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
-export PATH
 
 SCRIPT_NAME="$(basename "$0")"
 FIRMWARE_UPLOAD_SUCCESS=100

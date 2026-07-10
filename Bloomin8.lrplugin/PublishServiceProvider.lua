@@ -297,8 +297,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
 
     local deviceHost = exportSettings.bloomin8DeviceHost or ''
     if deviceHost ~= '' then
-        local wrapperPath
-        ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, exportSettings)
+        local ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, exportSettings)
         if not ok then
             LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
             LrErrors.throwUserError(err)

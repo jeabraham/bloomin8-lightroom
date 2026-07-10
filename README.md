@@ -187,12 +187,14 @@ Optional flags:
 - `--image-dir PATH` if you want to run the helper from somewhere other than the publish directory
 - `--frame-orientation portrait|landscape` (required) set to match how your frame is hung
 - `--random` to shuffle images into a random upload order (the device displays them in the order they were uploaded)
+- `--debug` to print verbose curl diagnostics (request details, HTTP status, and retry visibility) for troubleshooting
 
 Current helper behavior:
 - calls `GET /deviceInfo`
 - deletes and recreates the target gallery so the slideshow contains exactly the current exported set
-- uploads each JPEG into that gallery (in sorted order by default; shuffled when `--random` is passed)
-- calls `POST /show` with `play_type: 1` so the frame iterates the gallery on-device
+- deletes each target filename via `POST /image/delete` before upload so firmware cannot reuse stale image content
+- uploads each JPEG into that gallery (in sorted order by default; shuffled when `--random` is passed), retrying transient failures and requiring firmware `status: 100`
+- calls `POST /show` with `play_type: 1` so the frame iterates the gallery on-device, with retry handling on transient request failures
 
 ## Automated gallery slideshow from Lightroom
 

@@ -208,80 +208,21 @@ local function ensureDirectory(path)
 end
 
 local function copyFileReplacingExisting(sourcePath, destinationPath)
-    local tempPath
-    local backupPath
-    local okClock, clockValue = pcall(os.clock)
-    local clockToken = 0
-    if okClock and type(clockValue) == 'number' then
-        clockToken = math.floor(clockValue * 1000000) % 1000000
-    end
-    local timestampToken = string.format('%d-%d', os.time(), clockToken)
-    local suffix = 0
-
-    repeat
-        suffix = suffix + 1
-        tempPath = string.format('%s.bloomin8-tmp-%s-%d', destinationPath, timestampToken, suffix)
-    until LrFileUtils.exists(tempPath) ~= 'file'
-
-    suffix = 0
-    repeat
-        suffix = suffix + 1
-        backupPath = string.format('%s.bloomin8-backup-%s-%d', destinationPath, timestampToken, suffix)
-    until LrFileUtils.exists(backupPath) ~= 'file'
-
-    local function cleanupTemp()
-        local removedTemp = LrFileUtils.delete(tempPath)
-        if not removedTemp then
-            return false, string.format('Failed to clean up temporary file at %s', tempPath)
-        end
-        return true
-    end
-
-    local copied = LrFileUtils.copy(sourcePath, tempPath)
-    if not copied then
-        return false, string.format('Failed copying %s to temporary path %s', sourcePath, tempPath)
-    end
-
-    -- Try the direct rename first because Unix-like rename often replaces atomically;
-    -- the backup path below handles platforms that reject renaming over an existing file.
-    if os.rename(tempPath, destinationPath) then
-        return true
-    end
-
+    -- os.rename is not available in Lightroom's Lua sandbox, so delete-then-copy
+    -- is used to replace an existing destination file.
     if LrFileUtils.exists(destinationPath) == 'file' then
-        if not os.rename(destinationPath, backupPath) then
-            local cleaned, cleanupErr = cleanupTemp()
-            if cleaned then
-                return false, string.format('Failed backing up existing file at %s to %s', destinationPath, backupPath)
-            end
-            return false, string.format('Failed backing up existing file at %s to %s; %s', destinationPath, backupPath, cleanupErr)
+        local deleted = LrFileUtils.delete(destinationPath)
+        if not deleted then
+            return false, string.format('Failed to delete existing file at %s', destinationPath)
         end
-
-        if os.rename(tempPath, destinationPath) then
-            local removedBackup = LrFileUtils.delete(backupPath)
-            if not removedBackup then
-                return true
-            end
-            return true
-        end
-
-        local restored = os.rename(backupPath, destinationPath)
-        if not restored then
-            return false, string.format('Failed to replace %s with %s and failed to restore backup from %s', destinationPath, sourcePath, backupPath)
-        end
-        local cleaned, cleanupErr = cleanupTemp()
-        if not cleaned then
-            return false, string.format('Failed to replace %s with %s; backup restored but cleanup failed: %s', destinationPath, sourcePath, cleanupErr)
-        end
-        return false, string.format('Failed to replace %s with %s; original file restored from %s', destinationPath, sourcePath, backupPath)
     end
 
-    local cleaned, cleanupErr = cleanupTemp()
-    if not cleaned then
-        return false, string.format('Failed to replace %s with %s; %s', destinationPath, sourcePath, cleanupErr)
+    local copied = LrFileUtils.copy(sourcePath, destinationPath)
+    if not copied then
+        return false, string.format('Failed copying %s to %s', sourcePath, destinationPath)
     end
 
-    return false, string.format('Failed to replace %s with %s even though %s does not exist', destinationPath, sourcePath, destinationPath)
+    return true
 end
 
 local function copySlideshowHelper(destinationDirectory)

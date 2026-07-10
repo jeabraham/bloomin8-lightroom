@@ -560,10 +560,10 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         end
         -- Remove a trailing empty entry added by the forced \n if output ends with \n.
         if #scriptLines > 0 and scriptLines[#scriptLines] == '' then
-            scriptLines[#scriptLines] = nil
+            table.remove(scriptLines)
         end
         do
-            local level = (exitCode == nil or exitCode ~= 0) and 'error' or 'info'
+            local level = (exitCode ~= 0) and 'error' or 'info'
             logger[level](logger, string.format(
                 '[scriptOutput] exit=%s lines=%d',
                 tostring(exitCode), #scriptLines

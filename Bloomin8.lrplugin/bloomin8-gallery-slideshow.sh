@@ -230,7 +230,8 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --file)
-            NEW_FILES+=("${2:-}")
+            [[ -n "${2:-}" ]] || die "--file requires a non-empty path argument"
+            NEW_FILES+=("$2")
             shift 2
             ;;
         --help|-h)
@@ -343,7 +344,11 @@ else
         -H 'Accept: application/json' \
         -X PUT \
         "${BASE_URL}/gallery?name=${SAFE_GALLERY}" || true
-    echo "HTTP ${LAST_STATUS:-skipped}"
+    if [[ "$LAST_STATUS" == "200" ]]; then
+        echo "HTTP ${LAST_STATUS} (gallery created)"
+    else
+        echo "HTTP ${LAST_STATUS:-unknown} (gallery may already exist; continuing)"
+    fi
 fi
 
 image_index=0

@@ -1,10 +1,14 @@
 local LrDialogs = import 'LrDialogs'
 local LrErrors = import 'LrErrors'
 local LrFileUtils = import 'LrFileUtils'
+local LrLogger = import 'LrLogger'
 local LrPathUtils = import 'LrPathUtils'
 local LrView = import 'LrView'
 
 local bind = LrView.bind
+
+local logger = LrLogger('bloomin8')
+logger:enable('all')
 
 local PublishServiceProvider = {}
 local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
@@ -300,6 +304,11 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
     -- Each collection exports to a subdirectory named after the gallery
     local destinationDirectory = LrPathUtils.child(baseDirectory, galleryName)
 
+    logger:info(string.format(
+        '[publishState] processRenderedPhotos: collection=%q galleryName=%q destinationDirectory=%q',
+        collectionName, galleryName, destinationDirectory
+    ))
+
     local ok, err = ensureDirectory(destinationDirectory)
     if not ok then
         LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
@@ -312,21 +321,55 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         LrErrors.throwUserError(err)
     end
 
+    local nRenditions = 0
+    local nSucceeded  = 0
+    local nFailed     = 0
+    local failedNames = {}
+
     for _, rendition in exportSession:renditions { stopIfCanceled = true } do
+        nRenditions = nRenditions + 1
+
+        -- previousId is the path stored by the last successful uploadSucceeded call,
+        -- or nil when this photo has never been successfully published.
+        local previousId = rendition.publishedPhotoId
+        local photoName  = rendition:photo():getFormattedMetadata('fileName') or '(unknown)'
+
+        logger:info(string.format(
+            '[publishState] rendition #%d: photo=%q previousId=%s',
+            nRenditions, photoName,
+            previousId and string.format('%q', previousId) or 'nil (never published)'
+        ))
+
         local success, pathOrMessage = rendition:waitForRender()
 
         if not success then
-            if rendition.uploadFailed then
-                rendition:uploadFailed(pathOrMessage)
-            end
+            nFailed = nFailed + 1
+            failedNames[#failedNames + 1] = photoName
+            logger:warn(string.format(
+                '[publishState] render FAILED for %q: %s', photoName, tostring(pathOrMessage)
+            ))
+            rendition:uploadFailed(pathOrMessage)
         else
             local outputFilename = LrPathUtils.leafName(pathOrMessage)
             local destinationPath = LrPathUtils.child(destinationDirectory, outputFilename)
 
+            logger:info(string.format(
+                '[publishState] rendered %q -> destinationPath=%q (previousId match: %s)',
+                photoName, destinationPath,
+                (previousId == destinationPath) and 'yes' or
+                    (previousId == nil and 'nil – first publish' or
+                     string.format('NO (was %q)', previousId))
+            ))
+
             -- Delete existing file before copy so re-publishing a modified photo
             -- always replaces the local copy (LrFileUtils.copy does not overwrite).
             if LrFileUtils.exists(destinationPath) == 'file' then
-                LrFileUtils.delete(destinationPath)
+                local deleted = LrFileUtils.delete(destinationPath)
+                if not deleted then
+                    logger:warn(string.format(
+                        '[publishState] could not delete existing file before copy: %q', destinationPath
+                    ))
+                end
             end
 
             local copied = LrFileUtils.copy(pathOrMessage, destinationPath)
@@ -335,10 +378,39 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
                 -- Store the destination path as the published photo ID so that
                 -- deletePublishedPhotos can locate and remove the file later.
                 rendition:uploadSucceeded(destinationPath)
+                nSucceeded = nSucceeded + 1
+                logger:info(string.format(
+                    '[publishState] uploadSucceeded(%q) for %q', destinationPath, photoName
+                ))
             else
-                rendition:uploadFailed(string.format('Failed copying %s to %s', pathOrMessage, destinationPath))
+                nFailed = nFailed + 1
+                failedNames[#failedNames + 1] = photoName
+                local failMsg = string.format('Failed copying %s to %s', pathOrMessage, destinationPath)
+                rendition:uploadFailed(failMsg)
+                logger:error(string.format(
+                    '[publishState] uploadFailed for %q: %s', photoName, failMsg
+                ))
             end
         end
+    end
+
+    logger:info(string.format(
+        '[publishState] publish loop complete: renditions=%d succeeded=%d failed=%d',
+        nRenditions, nSucceeded, nFailed
+    ))
+
+    -- Surface a warning if any file copies failed so the user can see their publish
+    -- state is not fully committed.  These photos will remain in "New Photos to
+    -- Publish" or "Modified Photos to Re-publish" and should be retried.
+    if nFailed > 0 then
+        local msg = string.format(
+            '%d of %d photo(s) could not be copied to the local publish directory and were NOT marked as published:\n\n%s\n\nThey will remain in "New Photos to Publish" until a successful publish. Check the Lightroom log for details.\n%s',
+            nFailed, nRenditions,
+            table.concat(failedNames, '\n'),
+            LIGHTROOM_LOG_HINT_MULTILINE
+        )
+        logger:error('[publishState] ' .. msg)
+        LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
     end
 
     local deviceHost = exportSettings.bloomin8DeviceHost or ''

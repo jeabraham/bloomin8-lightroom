@@ -208,12 +208,29 @@ local function ensureDirectory(path)
 end
 
 local function copyFileReplacingExisting(sourcePath, destinationPath)
-    local tempPath = string.format('%s.bloomin8-tmp', destinationPath)
-    if LrFileUtils.exists(tempPath) == 'file' then
-        local deleted = LrFileUtils.delete(tempPath)
-        if not deleted then
-            return false, string.format('Failed removing temporary file at %s', tempPath)
+    local tempPath
+    local backupPath
+    local suffix = 0
+
+    repeat
+        suffix = suffix + 1
+        tempPath = string.format('%s.bloomin8-tmp-%d', destinationPath, suffix)
+    until LrFileUtils.exists(tempPath) ~= 'file'
+
+    suffix = 0
+    repeat
+        suffix = suffix + 1
+        backupPath = string.format('%s.bloomin8-backup-%d', destinationPath, suffix)
+    until LrFileUtils.exists(backupPath) ~= 'file'
+
+    local function cleanupTemp()
+        if LrFileUtils.exists(tempPath) == 'file' then
+            local removedTemp = LrFileUtils.delete(tempPath)
+            if not removedTemp then
+                return false, string.format('Failed removing temporary file at %s', tempPath)
+            end
         end
+        return true
     end
 
     local copied = LrFileUtils.copy(sourcePath, tempPath)
@@ -226,23 +243,36 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
     end
 
     if LrFileUtils.exists(destinationPath) == 'file' then
-        local deleted = LrFileUtils.delete(destinationPath)
-        if not deleted then
-            local removedTemp = LrFileUtils.delete(tempPath)
-            if not removedTemp then
-                return false, string.format('Failed removing existing file at %s and temporary file at %s', destinationPath, tempPath)
+        if not os.rename(destinationPath, backupPath) then
+            local cleaned, cleanupErr = cleanupTemp()
+            if not cleaned then
+                return false, string.format('Failed backing up existing file at %s to %s; %s', destinationPath, backupPath, cleanupErr)
             end
-            return false, string.format('Failed removing existing file at %s', destinationPath)
+            return false, string.format('Failed backing up existing file at %s to %s', destinationPath, backupPath)
         end
 
         if os.rename(tempPath, destinationPath) then
+            local removedBackup = LrFileUtils.delete(backupPath)
+            if not removedBackup then
+                return false, string.format('Replaced %s but failed removing backup file %s', destinationPath, backupPath)
+            end
             return true
         end
+
+        local restored = os.rename(backupPath, destinationPath)
+        local cleaned, cleanupErr = cleanupTemp()
+        if not cleaned then
+            return false, string.format('Failed replacing %s with %s and restoring backup; %s', destinationPath, sourcePath, cleanupErr)
+        end
+        if not restored then
+            return false, string.format('Failed replacing %s with %s and failed restoring backup from %s', destinationPath, sourcePath, backupPath)
+        end
+        return false, string.format('Failed replacing %s with %s; original file restored from %s', destinationPath, sourcePath, backupPath)
     end
 
-    local removedTemp = LrFileUtils.delete(tempPath)
-    if not removedTemp then
-        return false, string.format('Failed replacing %s with %s and cleaning temporary file %s', destinationPath, sourcePath, tempPath)
+    local cleaned, cleanupErr = cleanupTemp()
+    if not cleaned then
+        return false, string.format('Failed replacing %s with %s; %s', destinationPath, sourcePath, cleanupErr)
     end
 
     return false, string.format('Failed replacing %s with %s', destinationPath, sourcePath)

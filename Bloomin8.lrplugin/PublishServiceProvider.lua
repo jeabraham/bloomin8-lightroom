@@ -8,6 +8,9 @@ local bind = LrView.bind
 
 local PublishServiceProvider = {}
 local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
+local SLIDESHOW_WRAPPER_NAME = 'bloomin8-run-slideshow.sh'
+local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check Lightroom logs: macOS ~/Library/Logs/Adobe/Lightroom/ ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\'
+local LIGHTROOM_LOG_HINT_MULTILINE = 'Lightroom logs:\n  macOS: ~/Library/Logs/Adobe/Lightroom/\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\'
 
 PublishServiceProvider.supportsIncrementalPublish = 'only'
 
@@ -159,6 +162,10 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                 title = 'Set to match how your frame is hung. Auto reads orientation from the device.',
                 fill_horizontal = 1,
             },
+            f:static_text {
+                title = LIGHTROOM_LOG_HINT_INLINE,
+                fill_horizontal = 1,
+            },
         },
     }
 end
@@ -198,6 +205,53 @@ local function copySlideshowHelper(destinationDirectory)
     end
 
     return true
+end
+
+local function buildSlideshowCommand(scriptPath, exportSettings, destinationDirectory)
+    local deviceHost = exportSettings.bloomin8DeviceHost or ''
+    local galleryName = exportSettings.bloomin8GalleryName or ''
+    local duration = exportSettings.bloomin8Duration or '120'
+    local randomOrder = exportSettings.bloomin8RandomOrder
+    local orientation = exportSettings.bloomin8Orientation or ''
+
+    local cmd = string.format(
+        'bash %q --host %q --image-dir %q --duration %q',
+        scriptPath, deviceHost, destinationDirectory, duration
+    )
+
+    if galleryName ~= '' then
+        cmd = cmd .. string.format(' --gallery %q', galleryName)
+    end
+
+    if orientation ~= '' then
+        cmd = cmd .. string.format(' --frame-orientation %q', orientation)
+    end
+
+    if randomOrder then
+        cmd = cmd .. ' --random'
+    end
+
+    return cmd
+end
+
+local function writeSlideshowWrapper(destinationDirectory, exportSettings)
+    local helperPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
+    local wrapperPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_WRAPPER_NAME)
+    local cmd = buildSlideshowCommand(helperPath, exportSettings, destinationDirectory)
+    local file, openErr = io.open(wrapperPath, 'w')
+    if not file then
+        return false, nil, string.format('Failed creating slideshow wrapper %s: %s', wrapperPath, tostring(openErr))
+    end
+
+    local wrapperContent = string.format('#!/usr/bin/env bash\n%s "$@"\n', cmd)
+    local okWrite, writeErr = file:write(wrapperContent)
+    file:close()
+
+    if not okWrite then
+        return false, nil, string.format('Failed writing slideshow wrapper %s: %s', wrapperPath, tostring(writeErr))
+    end
+
+    return true, wrapperPath, nil
 end
 
 function PublishServiceProvider.processRenderedPhotos(functionContext, exportContext)
@@ -243,28 +297,14 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
 
     local deviceHost = exportSettings.bloomin8DeviceHost or ''
     if deviceHost ~= '' then
-        local helperPath   = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
-        local galleryName  = exportSettings.bloomin8GalleryName or ''
-        local duration     = exportSettings.bloomin8Duration or '120'
-        local randomOrder  = exportSettings.bloomin8RandomOrder
-        local orientation  = exportSettings.bloomin8Orientation or ''
-
-        local cmd = string.format(
-            'bash %q --host %q --image-dir %q --duration %q',
-            helperPath, deviceHost, destinationDirectory, duration
-        )
-
-        if galleryName ~= '' then
-            cmd = cmd .. string.format(' --gallery %q', galleryName)
+        local ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, exportSettings)
+        if not ok then
+            LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
+            LrErrors.throwUserError(err)
         end
 
-        if orientation ~= '' then
-            cmd = cmd .. string.format(' --frame-orientation %q', orientation)
-        end
-
-        if randomOrder then
-            cmd = cmd .. ' --random'
-        end
+        -- Wrapper is primarily for manual re-runs from Terminal with persisted settings.
+        local cmd = string.format('bash %q', wrapperPath)
 
         -- os.execute is unavailable in Lightroom's Lua sandbox; use io.popen
         -- Append exit-code sentinel so we can detect failures.
@@ -275,8 +315,9 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
         if exitCode == nil or exitCode ~= 0 then
             local msg = string.format(
-                'Slideshow upload finished with errors (exit code %s).\nCheck the Lightroom log for details.',
-                tostring(exitCode)
+                'Slideshow upload finished with errors (exit code %s).\nCheck the Lightroom log for details.\n%s',
+                tostring(exitCode),
+                LIGHTROOM_LOG_HINT_MULTILINE
             )
             LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
         end

@@ -201,6 +201,20 @@ dialog will appear.
 
 ---
 
+## Troubleshooting
+
+### Lightroom log file (macOS)
+
+When the plugin reports errors or the slideshow upload fails, detailed diagnostics are written to the Lightroom console log:
+
+```
+~/Library/Application Support/Adobe/Lightroom/lrc_console.log
+```
+
+Open this file in any text editor or `tail -f` it while reproducing the problem to see full error output.
+
+---
+
 ## If API docs are inaccessible
 
 If Bloomin8 API docs become unavailable, use the copied API documentation already present in this repository under `bloomin8-docs/reference/`.

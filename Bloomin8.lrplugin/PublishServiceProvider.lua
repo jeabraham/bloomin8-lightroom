@@ -275,7 +275,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
         if exitCode == nil or exitCode ~= 0 then
             local msg = string.format(
-                'Slideshow upload finished with errors (exit code %s).\nCheck the Lightroom log for details.',
+                'Slideshow upload finished with errors (exit code %s).\nCheck the Lightroom log for details:\n~/Library/Application Support/Adobe/Lightroom/lrc_console.log',
                 tostring(exitCode)
             )
             LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')

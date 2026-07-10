@@ -208,19 +208,34 @@ local function ensureDirectory(path)
 end
 
 local function copyFileReplacingExisting(sourcePath, destinationPath)
+    local tempPath = string.format('%s.bloomin8-tmp-%d', destinationPath, math.floor((os.clock() or 0) * 1000000))
+    if LrFileUtils.exists(tempPath) == 'file' then
+        LrFileUtils.delete(tempPath)
+    end
+
+    local copied = LrFileUtils.copy(sourcePath, tempPath)
+    if not copied then
+        return false, string.format('Failed copying %s to temporary path %s', sourcePath, tempPath)
+    end
+
+    if os.rename(tempPath, destinationPath) then
+        return true
+    end
+
     if LrFileUtils.exists(destinationPath) == 'file' then
         local deleted = LrFileUtils.delete(destinationPath)
         if not deleted then
+            LrFileUtils.delete(tempPath)
             return false, string.format('Failed removing existing file at %s', destinationPath)
+        end
+
+        if os.rename(tempPath, destinationPath) then
+            return true
         end
     end
 
-    local copied = LrFileUtils.copy(sourcePath, destinationPath)
-    if not copied then
-        return false, string.format('Failed copying %s to %s', sourcePath, destinationPath)
-    end
-
-    return true
+    LrFileUtils.delete(tempPath)
+    return false, string.format('Failed replacing %s with %s', destinationPath, sourcePath)
 end
 
 local function copySlideshowHelper(destinationDirectory)

@@ -106,8 +106,8 @@ function PublishServiceProvider.viewForCollectionSettings(f, publishSettings, in
     if collectionSettings.bloomin8RandomOrder == nil then
         collectionSettings.bloomin8RandomOrder = false
     end
-    if collectionSettings.bloomin8Orientation == nil then
-        collectionSettings.bloomin8Orientation = ''
+    if collectionSettings.bloomin8Orientation == nil or collectionSettings.bloomin8Orientation == '' then
+        collectionSettings.bloomin8Orientation = 'portrait'
     end
 
     return f:view {
@@ -177,14 +177,13 @@ function PublishServiceProvider.viewForCollectionSettings(f, publishSettings, in
                 f:popup_menu {
                     value = bind { key = 'bloomin8Orientation', object = collectionSettings },
                     items = {
-                        { title = 'Auto (from device)', value = ''          },
-                        { title = 'Portrait',           value = 'portrait'  },
-                        { title = 'Landscape',          value = 'landscape' },
+                        { title = 'Portrait',  value = 'portrait'  },
+                        { title = 'Landscape', value = 'landscape' },
                     },
                 },
             },
             f:static_text {
-                title = 'Set to match how your frame is hung. Auto reads orientation from the device.',
+                title = 'Set to match how your frame is physically hung on the wall.',
                 fill_horizontal = 1,
             },
         },
@@ -345,7 +344,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             bloomin8GalleryName = galleryName,
             bloomin8Duration    = collectionSettings.bloomin8Duration    or '120',
             bloomin8RandomOrder = collectionSettings.bloomin8RandomOrder,
-            bloomin8Orientation = collectionSettings.bloomin8Orientation or '',
+            bloomin8Orientation = collectionSettings.bloomin8Orientation or 'portrait',
         }
 
         local ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, effectiveSettings)

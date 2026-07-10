@@ -18,7 +18,7 @@ Options:
   --gallery NAME                     Destination gallery (default: derived from directory name)
   --duration SECONDS                 Slideshow interval passed to POST /show (default: 120)
   --frame-orientation portrait|landscape
-                                     Override the orientation inferred from /deviceInfo
+                                     Orientation of the frame (required)
   --pad-color COLOR                  Background fill color used when padding (default: black)
   --random                           Shuffle images into a random upload order
   --connect-timeout N                Curl connect timeout in seconds (default: 5)
@@ -107,7 +107,7 @@ derive_canvas_dimensions() {
     CANVAS_H="$(extract_json_number "height" "$LAST_BODY")"
 
     if [[ -z "$CANVAS_W" || -z "$CANVAS_H" || "$CANVAS_W" -eq 0 || "$CANVAS_H" -eq 0 ]]; then
-        echo "Warning: could not read canvas dimensions from deviceInfo; defaulting to 1200x1600 before any orientation override." >&2
+        echo "Warning: could not read canvas dimensions from deviceInfo; defaulting to 1200x1600 before applying orientation." >&2
         CANVAS_W=1200
         CANVAS_H=1600
     fi
@@ -237,6 +237,11 @@ done
 [[ -n "$HOST" ]] || {
     usage
     die "--host is required"
+}
+
+[[ -n "$FRAME_ORIENTATION" ]] || {
+    usage
+    die "--frame-orientation is required (portrait or landscape)"
 }
 
 [[ -d "$IMAGE_DIR" ]] || die "Image directory not found: $IMAGE_DIR"

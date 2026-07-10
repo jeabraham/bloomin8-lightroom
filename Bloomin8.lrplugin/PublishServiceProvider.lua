@@ -9,8 +9,8 @@ local bind = LrView.bind
 local PublishServiceProvider = {}
 local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
 local SLIDESHOW_WRAPPER_NAME = 'bloomin8-run-slideshow.sh'
-local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check Lightroom logs: macOS ~/Library/Logs/Adobe/Lightroom/ ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\'
-local LIGHTROOM_LOG_HINT_MULTILINE = 'Lightroom logs:\n  macOS: ~/Library/Logs/Adobe/Lightroom/\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\'
+local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check Lightroom logs: macOS ~/Library/Application Support/Adobe/Lightroom/lrc_console.log ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\'
+local LIGHTROOM_LOG_HINT_MULTILINE = 'Lightroom logs:\n  macOS: ~/Library/Application Support/Adobe/Lightroom/lrc_console.log\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\'
 
 PublishServiceProvider.supportsIncrementalPublish = 'only'
 

@@ -222,7 +222,7 @@ orientation), and forwards any extra CLI arguments you append.
 
 If slideshow upload fails, check the Lightroom log:
 
-- macOS: `~/Library/Logs/Adobe/Lightroom/`
+- macOS: `~/Library/Application Support/Adobe/Lightroom/lrc_console.log`
 - Windows: `%AppData%\Adobe\Lightroom\Logs\`
 
 ---

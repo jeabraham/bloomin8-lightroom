@@ -403,21 +403,37 @@ function PublishServiceProvider.deletePublishedPhotos(functionContext, publishSe
 
         -- Delete from device if a host is configured.
         -- Filename and gallery name are percent-encoded so special characters are safe in the URL.
+        -- deviceHost is validated to contain only characters valid in a hostname, IP, or port,
+        -- preventing shell metacharacter injection when it is interpolated into the curl URL.
         if deviceHost ~= '' then
-            local filename = LrPathUtils.leafName(photoId)
-            local galleryName = LrPathUtils.leafName(LrPathUtils.parent(photoId))
-            local url = string.format('http://%s/image/delete?image=%s&gallery=%s',
-                deviceHost, urlEncode(filename), urlEncode(galleryName))
-            local curlCmd = string.format('curl -sf -X POST %q', url)
-            local handle = io.popen('{ ' .. curlCmd .. '; }; printf "\\nBLOOMIN8_EXIT:%d" $?', 'r')
-            local output = handle and handle:read('*all') or ''
-            if handle then handle:close() end
-            local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
-            if exitCode == nil or exitCode ~= 0 then
+            if deviceHost:match('[^%w%.%-:%[%]]') then
                 errors[#errors + 1] = string.format(
-                    'Failed to delete %s from device gallery %s (curl exit %s)',
-                    filename, galleryName, tostring(exitCode)
+                    'Device host %q contains invalid characters; skipping device delete for %s',
+                    deviceHost, LrPathUtils.leafName(photoId)
                 )
+            else
+                local parentDir = LrPathUtils.parent(photoId)
+                if not parentDir then
+                    errors[#errors + 1] = string.format(
+                        'Cannot determine gallery from path %s; skipping device delete', photoId
+                    )
+                else
+                    local filename = LrPathUtils.leafName(photoId)
+                    local galleryName = LrPathUtils.leafName(parentDir)
+                    local url = string.format('http://%s/image/delete?image=%s&gallery=%s',
+                        deviceHost, urlEncode(filename), urlEncode(galleryName))
+                    local curlCmd = string.format('curl -sf -X POST %q', url)
+                    local handle = io.popen('{ ' .. curlCmd .. '; }; printf "\\nBLOOMIN8_EXIT:%d" $?', 'r')
+                    local output = handle and handle:read('*all') or ''
+                    if handle then handle:close() end
+                    local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
+                    if exitCode == nil or exitCode ~= 0 then
+                        errors[#errors + 1] = string.format(
+                            'Failed to delete %s from device gallery %s (curl exit %s)',
+                            filename, galleryName, tostring(exitCode)
+                        )
+                    end
+                end
             end
         end
     end

@@ -18,7 +18,7 @@ Options:
   --gallery NAME                     Destination gallery (default: derived from directory name)
   --duration SECONDS                 Slideshow interval passed to POST /show (default: 120)
   --frame-orientation portrait|landscape
-                                     Override the orientation inferred from /deviceInfo
+                                     Orientation of the frame (required)
   --pad-color COLOR                  Background fill color used when padding (default: black)
   --random                           Shuffle images into a random upload order
   --connect-timeout N                Curl connect timeout in seconds (default: 5)
@@ -69,7 +69,7 @@ sanitize_component() {
     local input="$1"
     local sanitized
 
-    sanitized="$(printf '%s' "$input" | tr ' /' '__' | tr -cd '[:alnum:]._-')"
+    sanitized="$(printf '%s' "$input" | tr ' /' '__' | tr -cd '[:alnum:]._-' | tr -s '_')"
     [[ -n "$sanitized" ]] || die "Unable to derive a safe value from: $input"
 
     printf '%s' "$sanitized"
@@ -107,7 +107,7 @@ derive_canvas_dimensions() {
     CANVAS_H="$(extract_json_number "height" "$LAST_BODY")"
 
     if [[ -z "$CANVAS_W" || -z "$CANVAS_H" || "$CANVAS_W" -eq 0 || "$CANVAS_H" -eq 0 ]]; then
-        echo "Warning: could not read canvas dimensions from deviceInfo; defaulting to 1200x1600 before any orientation override." >&2
+        echo "Warning: could not read canvas dimensions from deviceInfo; defaulting to 1200x1600 before applying orientation." >&2
         CANVAS_W=1200
         CANVAS_H=1600
     fi
@@ -151,8 +151,8 @@ shuffle_images() {
 prepare_image() {
     local source_path="$1"
     local output_stem="$2"
-    local processed_path="${TEMP_DIR}/${output_stem}.jpg"
-    local rotated_path="${TEMP_DIR}/${output_stem}-rotated.jpg"
+    local processed_path="${PROCESSED_DIR}/${output_stem}.jpg"
+    local rotated_path="${PROCESSED_DIR}/${output_stem}-rotated.jpg"
 
     echo "==> Preparing $(basename "$source_path") for ${CANVAS_W}x${CANVAS_H}" >&2
     "${MAGICK_CONVERT[@]}" \
@@ -239,6 +239,11 @@ done
     die "--host is required"
 }
 
+[[ -n "$FRAME_ORIENTATION" ]] || {
+    usage
+    die "--frame-orientation is required (portrait or landscape)"
+}
+
 [[ -d "$IMAGE_DIR" ]] || die "Image directory not found: $IMAGE_DIR"
 
 require_command curl
@@ -280,8 +285,8 @@ case "$DURATION" in
 esac
 [[ "$DURATION" -gt 0 ]] || die "--duration must be a positive integer"
 
-TEMP_DIR="$(mktemp -d "/tmp/bloomin8-gallery-slideshow.XXXXXX")"
-trap 'rm -rf "$TEMP_DIR"' EXIT
+PROCESSED_DIR="${IMAGE_DIR}/processed"
+mkdir -p "$PROCESSED_DIR"
 
 echo "==> GET ${BASE_URL}/deviceInfo"
 perform_request \
@@ -322,8 +327,11 @@ for image_path in "${IMAGE_FILES[@]}"; do
     remote_filename="$(printf '%04d_%s' "$image_index" "$(basename "$image_path")")"
     remote_filename="$(sanitize_component "$remote_filename")"
     prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
+    [[ -f "$prepared_image" ]] || die "Image preparation failed (ImageMagick error?) for: $image_path"
 
     echo
+    echo "==> Uploading processed file:"
+    ls -la "$prepared_image"
     echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
     perform_request \
         -H 'Accept: application/json' \

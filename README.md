@@ -155,14 +155,10 @@ Current docs indicate:
 
 **Orientation note (confirmed with real device):**
 The device reports `width:1200, height:1600` when in portrait orientation and
-`width:1600, height:1200` when in landscape.  The probe script uses ImageMagick
-to automatically rotate images whose orientation does not match the frame, then
-scales and letter/pillarboxes them to exactly fill the canvas.  Use
-`--frame-orientation portrait|landscape` to override what is inferred from the
-device's `width`/`height` values.
-The future Lightroom plugin upload step must apply the same rotation and
-padding logic, comparing the image's rendered pixel dimensions to the device's
-reported `width`/`height` values.
+`width:1600, height:1200` when in landscape.  The helper script uses ImageMagick
+to rotate images whose orientation does not match the frame, then
+scales and letter/pillarboxes them to exactly fill the canvas.  Pass
+`--frame-orientation portrait|landscape` to match how your frame is physically hung.
 
 If this shell-level probe works against the real device, the next code change should be implementing the same request flow in Lua.
 
@@ -178,14 +174,15 @@ gallery and then ask the frame itself to run the slideshow:
 
 ```bash
 bash ./bloomin8-gallery-slideshow.sh \
-  --host 192.168.1.25
+  --host 192.168.1.25 \
+  --frame-orientation portrait
 ```
 
 Optional flags:
 - `--gallery NAME` to pick the device gallery name explicitly
 - `--duration SECONDS` to control the slideshow interval sent to `POST /show`
 - `--image-dir PATH` if you want to run the helper from somewhere other than the publish directory
-- `--frame-orientation portrait|landscape` to override the orientation inferred from `/deviceInfo`
+- `--frame-orientation portrait|landscape` (required) set to match how your frame is hung
 - `--random` to shuffle images into a random upload order (the device displays them in the order they were uploaded)
 
 Current helper behavior:
@@ -203,20 +200,35 @@ plugin settings:
 | Setting | Description |
 |---|---|
 | **Device host** | IP address or hostname of the Bloomin8 frame (e.g. `192.168.1.25`). Leave blank to skip upload and use the shell script manually. |
-| **Gallery name** | Name of the gallery on the device. Defaults to the local publish directory name if left blank. |
+
+Gallery name, duration, playback order, and frame orientation are set
+**per-collection** rather than globally, so each collection can target a
+different gallery on the frame with its own slideshow settings.  To edit them,
+right-click a collection in the Publish panel and choose **Edit Collection
+Settings**.
+
+| Collection Setting | Description |
+|---|---|
+| **Gallery name** | Name of the gallery on the device and the export subdirectory under the local publish directory. Leave blank to use the collection name automatically. |
 | **Duration (seconds)** | Seconds between pictures in the slideshow (default: 120). |
 | **Playback order** | *Sequential* (default) or *Random*. Random shuffles the upload order so the device plays images in a random sequence. |
-| **Frame orientation** | *Auto (from device)* reads width/height from `/deviceInfo`. Set to *Portrait* or *Landscape* to match how your frame is physically hung on the wall if the auto-detected value is wrong. |
+| **Frame orientation** | *Portrait* or *Landscape* — set to match how your frame is physically hung on the wall. |
+
+Each collection's files are exported to a subdirectory named after its gallery
+(e.g. `<Local publish directory>/<Gallery name>/`).  This keeps images from
+different collections isolated so that sending one collection's slideshow to the
+frame does not mix in images from other collections.
 
 When **Device host** is set, Lightroom will run `bloomin8-gallery-slideshow.sh`
 automatically at the end of each publish, uploading all rendered photos and
 starting playback on the frame.  If the script exits with an error a warning
 dialog will appear.
 
-Each publish also writes `bloomin8-run-slideshow.sh` into the publish directory.
-It is a single-command wrapper that calls `bloomin8-gallery-slideshow.sh` with
-the current Lightroom settings (host, gallery, duration, playback order,
-orientation), and forwards any extra CLI arguments you append.
+Each publish also writes `bloomin8-run-slideshow.sh` into the collection's
+export subdirectory.  It is a single-command wrapper that calls
+`bloomin8-gallery-slideshow.sh` with the current settings (host, gallery,
+duration, playback order, orientation), and forwards any extra CLI arguments you
+append.
 
 ## Lightroom logs (for troubleshooting)
 

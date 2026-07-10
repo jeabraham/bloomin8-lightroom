@@ -287,9 +287,10 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
     local collectionSettings = (collectionInfo and collectionInfo.collectionSettings) or {}
 
     -- Gallery name: use collection setting if set, otherwise fall back to collection name
-    local galleryName = (collectionSettings.bloomin8GalleryName ~= nil and collectionSettings.bloomin8GalleryName ~= '')
-        and collectionSettings.bloomin8GalleryName
-        or collectionName
+    local galleryName = collectionSettings.bloomin8GalleryName
+    if galleryName == nil or galleryName == '' then
+        galleryName = collectionName
+    end
 
     if galleryName == '' then
         local err = 'Cannot determine gallery name: collection name is empty and no gallery name is configured in the collection settings.'

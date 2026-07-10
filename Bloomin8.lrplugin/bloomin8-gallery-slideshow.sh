@@ -330,6 +330,7 @@ for image_path in "${IMAGE_FILES[@]}"; do
     [[ -f "$prepared_image" ]] || die "Image preparation failed (ImageMagick error?) for: $image_path"
 
     echo
+    echo "==> Uploading temp file: $(ls -la "$prepared_image")"
     echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
     perform_request \
         -H 'Accept: application/json' \

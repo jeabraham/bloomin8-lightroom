@@ -406,7 +406,7 @@ function PublishServiceProvider.deletePublishedPhotos(functionContext, publishSe
         -- deviceHost is validated to contain only characters valid in a hostname, IP, or port,
         -- preventing shell metacharacter injection when it is interpolated into the curl URL.
         if deviceHost ~= '' then
-            if deviceHost:match('[^%w%.%-:%[%]]') then
+            if deviceHost:match('[^%w%.%-%:]') then
                 errors[#errors + 1] = string.format(
                     'Device host %q contains invalid characters; skipping device delete for %s',
                     deviceHost, LrPathUtils.leafName(photoId)
@@ -427,10 +427,15 @@ function PublishServiceProvider.deletePublishedPhotos(functionContext, publishSe
                     local output = handle and handle:read('*all') or ''
                     if handle then handle:close() end
                     local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
-                    if exitCode == nil or exitCode ~= 0 then
+                    if exitCode == nil then
                         errors[#errors + 1] = string.format(
-                            'Failed to delete %s from device gallery %s (curl exit %s)',
-                            filename, galleryName, tostring(exitCode)
+                            'Failed to delete %s from device gallery %s (curl produced no exit code)',
+                            filename, galleryName
+                        )
+                    elseif exitCode ~= 0 then
+                        errors[#errors + 1] = string.format(
+                            'Failed to delete %s from device gallery %s (curl exit %d)',
+                            filename, galleryName, exitCode
                         )
                     end
                 end
@@ -441,8 +446,8 @@ function PublishServiceProvider.deletePublishedPhotos(functionContext, publishSe
     if #errors > 0 then
         LrDialogs.message(
             'Bloomin8 Publish Service',
-            'Some deletions failed:\n' .. table.concat(errors, '\n') ..
-                '\n' .. LIGHTROOM_LOG_HINT_MULTILINE,
+            string.format('%d deletion(s) failed:\n', #errors) ..
+                table.concat(errors, '\n') .. '\n' .. LIGHTROOM_LOG_HINT_MULTILINE,
             'warning'
         )
     end

@@ -569,11 +569,12 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             end
             -- Include the last few lines of script output in the dialog so the user
             -- sees the actual failure reason without needing to find the log file.
+            local MAX_TAIL_LINES = 10
             local outputLines = {}
             for line in scriptOutput:gmatch('[^\n]+') do
                 outputLines[#outputLines + 1] = line
             end
-            local tailStart = math.max(1, #outputLines - 9)
+            local tailStart = math.max(1, #outputLines - MAX_TAIL_LINES + 1)
             local tailLines = {}
             for i = tailStart, #outputLines do
                 tailLines[#tailLines + 1] = outputLines[i]

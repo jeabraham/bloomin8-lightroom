@@ -210,7 +210,7 @@ end
 local function copyFileReplacingExisting(sourcePath, destinationPath)
     local tempPath
     local backupPath
-    local token = os.time()
+    local token = string.format('%d-%d', os.time(), math.floor((os.clock() or 0) * 1000000) % 1000000)
     local suffix = 0
 
     repeat
@@ -225,11 +225,13 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
     until LrFileUtils.exists(backupPath) ~= 'file'
 
     local function cleanupTemp()
-        if LrFileUtils.exists(tempPath) == 'file' then
-            local removedTemp = LrFileUtils.delete(tempPath)
-            if not removedTemp then
-                return false, string.format('Failed removing temporary file at %s', tempPath)
-            end
+        if LrFileUtils.exists(tempPath) ~= 'file' then
+            return false, string.format('Temporary file already missing at %s', tempPath)
+        end
+
+        local removedTemp = LrFileUtils.delete(tempPath)
+        if not removedTemp then
+            return false, string.format('Failed removing temporary file at %s', tempPath)
         end
         return true
     end
@@ -239,7 +241,8 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
         return false, string.format('Failed copying %s to temporary path %s', sourcePath, tempPath)
     end
 
-    -- Try the direct rename first so platforms that replace on rename can avoid the backup path.
+    -- Try the direct rename first because Unix-like rename often replaces atomically;
+    -- the backup path below handles platforms that reject renaming over an existing file.
     if os.rename(tempPath, destinationPath) then
         return true
     end

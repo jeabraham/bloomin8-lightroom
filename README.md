@@ -29,7 +29,7 @@ and you can set `BLOOMIN8_MAGICK_BIN` to an absolute executable path if needed.
 
 ## Current implementation status
 
-This repository now implements **Step 1** (foundation + local publish pipeline) and publish-state tracking.
+This repository now implements **Step 1** (foundation + local publish pipeline).
 
 Implemented:
 - Lightroom plugin bundle scaffold: `<repository-root>/Bloomin8.lrplugin`
@@ -37,18 +37,15 @@ Implemented:
 - Export/publish provider (`PublishServiceProvider.lua`)
 - Local directory setting in plugin UI
 - JPEG render defaults with long-edge resize constrained to **1600px**
-- Copy of rendered files into the configured local publish directory (overwrites on re-publish)
+- Copy of rendered files into the configured local publish directory
 - Bash probe script for validating the frame API outside Lightroom: `<repository-root>/scripts/bloomin8-upload-probe.sh`
 - Gallery slideshow helper copied into the local publish directory on publish: `bloomin8-gallery-slideshow.sh`
-- Publish-state tracking: Lightroom marks each photo as Published after copy succeeds
-- Modified-photo re-publish: existing local file is replaced and Lightroom status updated
-- Deleted-photo handling: removing a photo from the published collection deletes the local file
-  and, when a device host is configured, calls `POST /image/delete` on the frame
 
 Not implemented yet:
 - Bloomin8 authentication/session handling
 - Device discovery and selection
-- Direct per-file upload API call from Lightroom (current workflow uses the bash slideshow helper)
+- Upload API call flow
+- Publish state sync and retry queue
 
 ---
 
@@ -187,14 +184,12 @@ Optional flags:
 - `--image-dir PATH` if you want to run the helper from somewhere other than the publish directory
 - `--frame-orientation portrait|landscape` (required) set to match how your frame is hung
 - `--random` to shuffle images into a random upload order (the device displays them in the order they were uploaded)
-- `--debug` to print verbose curl diagnostics (request details, HTTP status, and retry visibility) for troubleshooting
 
 Current helper behavior:
 - calls `GET /deviceInfo`
 - deletes and recreates the target gallery so the slideshow contains exactly the current exported set
-- deletes each target filename via `POST /image/delete` before upload so firmware cannot reuse stale image content
-- uploads each JPEG into that gallery (in sorted order by default; shuffled when `--random` is passed), retrying transient failures and requiring firmware `status: 100`
-- calls `POST /show` with `play_type: 1` so the frame iterates the gallery on-device, with retry handling on transient request failures
+- uploads each JPEG into that gallery (in sorted order by default; shuffled when `--random` is passed)
+- calls `POST /show` with `play_type: 1` so the frame iterates the gallery on-device
 
 ## Automated gallery slideshow from Lightroom
 
@@ -241,27 +236,6 @@ If slideshow upload fails, check the Lightroom log:
 
 - macOS: `~/Library/Application Support/Adobe/Lightroom/lrc_console.log`
 - Windows: `%AppData%\Adobe\Lightroom\Logs\`
-
-### Publish-state diagnostics
-
-The plugin writes `[publishState]` entries to the Lightroom log on every publish run.
-Search for `[publishState]` to find the relevant lines.  Key entries to look for:
-
-| Log line | What it tells you |
-|---|---|
-| `processRenderedPhotos: collection=… galleryName=… destinationDirectory=…` | The destination path that will be stored as each photo's published ID. |
-| `rendition #N: photo=… previousId=nil (never published)` | Lightroom has no stored published ID for this photo — it has never been successfully published in this service. |
-| `rendition #N: photo=… previousId="/path/…"` | A previously stored published ID exists; compare it to `destinationPath` in the next line. |
-| `previousId match: NO (was "…")` | The stored path doesn't match the current destination — the gallery name or base directory changed between publishes; this causes Lightroom to treat the photo as new. |
-| `recordPublishedPhotoId("/path/…")` | Lightroom's publish state was updated for this photo; it will move to "Published". |
-| `uploadFailed for "…"` | The file copy failed; this photo will remain in "New Photos to Publish". |
-| `publish loop complete: renditions=N succeeded=N failed=0` | All N photos in this session were committed.  If N is smaller than expected, some photos were already "Published" and not included in this run (correct incremental behavior). |
-
-**Common causes of "all photos appear as New Photos to Publish":**
-
-1. **`previousId=nil` for all photos** — `recordPublishedPhotoId` was never committed (e.g., the plugin threw an exception during a previous publish before reaching the copy step, or was installed fresh).
-2. **`previousId match: NO`** — the gallery name or base directory was changed after the initial publish, so the stored path no longer matches the current destination path.  The fix is to publish once to re-register the correct paths.
-3. **`uploadFailed` for every photo** — the local file copy is failing (disk full, permissions, path too long).  Check the error message alongside the `uploadFailed` line.
 
 ---
 

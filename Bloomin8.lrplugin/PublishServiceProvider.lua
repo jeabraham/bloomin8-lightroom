@@ -416,7 +416,6 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         else
             local outputFilename = LrPathUtils.leafName(pathOrMessage)
             local destinationPath = LrPathUtils.child(destinationDirectory, outputFilename)
-<<<<<<< HEAD
 
             logger:info(string.format(
                 '[publishState] rendered %q -> destinationPath=%q (previousId match: %s)',
@@ -426,21 +425,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
                      string.format('NO (was %q)', previousId))
             ))
 
-            -- Delete existing file before copy so re-publishing a modified photo
-            -- always replaces the local copy (LrFileUtils.copy does not overwrite).
-            if LrFileUtils.exists(destinationPath) == 'file' then
-                local deleted = LrFileUtils.delete(destinationPath)
-                if not deleted then
-                    logger:warn(string.format(
-                        '[publishState] could not delete existing file before copy: %q', destinationPath
-                    ))
-                end
-            end
-
-            local copied = LrFileUtils.copy(pathOrMessage, destinationPath)
-=======
             local copied, copyErr = copyFileReplacingExisting(pathOrMessage, destinationPath)
->>>>>>> origin/main
 
             if copied then
                 -- Defer recordPublishedPhotoId until after the device upload so that
@@ -455,19 +440,15 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
                     photoName, destinationPath
                 ))
             else
-<<<<<<< HEAD
                 nFailed = nFailed + 1
                 failedNames[#failedNames + 1] = photoName
-                local failMsg = string.format('Failed copying %s to %s', pathOrMessage, destinationPath)
-                rendition:uploadFailed(failMsg)
+                local failMsg = string.format('Failed copying %s to %s: %s', pathOrMessage, destinationPath, tostring(copyErr))
+                if rendition.uploadFailed then
+                    rendition:uploadFailed(failMsg)
+                end
                 logger:error(string.format(
                     '[publishState] uploadFailed for %q: %s', photoName, failMsg
                 ))
-=======
-                if rendition.uploadFailed then
-                    rendition:uploadFailed(string.format('Failed copying %s to %s: %s', pathOrMessage, destinationPath, copyErr))
-                end
->>>>>>> origin/main
             end
         end
     end

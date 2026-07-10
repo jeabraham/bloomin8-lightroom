@@ -1,10 +1,38 @@
 local LrDialogs = import 'LrDialogs'
 local LrErrors = import 'LrErrors'
 local LrFileUtils = import 'LrFileUtils'
+local LrLogger = import 'LrLogger'
 local LrPathUtils = import 'LrPathUtils'
 local LrView = import 'LrView'
 
 local bind = LrView.bind
+
+local logger = LrLogger('bloomin8')
+do
+    local enabledLogfile, enableErr = pcall(function()
+        logger:enable('logfile')
+    end)
+
+    if not enabledLogfile then
+        local enabledPrint = pcall(function()
+            logger:enable('print')
+        end)
+
+        if enabledPrint then
+            logger:warn(string.format(
+                '[logging] Falling back to print logging because logfile logging could not be enabled: %s',
+                tostring(enableErr)
+            ))
+        else
+            pcall(function()
+                print(string.format(
+                    '[bloomin8][logging] Failed to enable logfile logging (%s) and print logging fallback.',
+                    tostring(enableErr)
+                ))
+            end)
+        end
+    end
+end
 
 local PublishServiceProvider = {}
 local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
@@ -95,7 +123,19 @@ end
 
 -- Per-collection settings: gallery name, duration, playback order, frame orientation.
 function PublishServiceProvider.viewForCollectionSettings(f, publishSettings, info)
-    local collectionSettings = assert(info.collectionSettings)
+    local collectionSettings = info and info.collectionSettings
+    if not collectionSettings then
+        logger:warn('[collectionSettings] Lightroom did not provide collectionSettings for the current item')
+        return f:group_box {
+            title = 'Bloomin8 Collection Settings',
+            fill_horizontal = 1,
+
+            f:static_text {
+                title = 'Collection settings are unavailable for this item.',
+                fill_horizontal = 1,
+            },
+        }
+    end
 
     if collectionSettings.bloomin8GalleryName == nil then
         collectionSettings.bloomin8GalleryName = ''
@@ -110,82 +150,81 @@ function PublishServiceProvider.viewForCollectionSettings(f, publishSettings, in
         collectionSettings.bloomin8Orientation = 'portrait'
     end
 
-    return f:view {
-        f:group_box {
-            title = 'Bloomin8 Collection Settings',
+    return f:group_box {
+        title = 'Bloomin8 Collection Settings',
+        fill_horizontal = 1,
+        bind_to_object = collectionSettings,
+
+        f:row {
+            spacing = f:control_spacing(),
+            f:static_text {
+                title = 'Gallery name:',
+                alignment = 'right',
+                width = 160,
+            },
+            f:edit_field {
+                value = bind 'bloomin8GalleryName',
+                immediate = true,
+                width_in_chars = 30,
+            },
+        },
+        f:static_text {
+            title = 'Gallery name on the device and name of the export subdirectory. Leave blank to use the collection name.',
             fill_horizontal = 1,
+        },
 
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = 'Gallery name:',
-                    alignment = 'right',
-                    width = 160,
-                },
-                f:edit_field {
-                    value = bind { key = 'bloomin8GalleryName', object = collectionSettings },
-                    immediate = true,
-                    width_in_chars = 30,
-                },
-            },
+        f:row {
+            spacing = f:control_spacing(),
             f:static_text {
-                title = 'Gallery name on the device and name of the export subdirectory. Leave blank to use the collection name.',
-                fill_horizontal = 1,
+                title = 'Duration (seconds):',
+                alignment = 'right',
+                width = 160,
             },
+            f:edit_field {
+                value = bind 'bloomin8Duration',
+                immediate = true,
+                width_in_chars = 10,
+            },
+        },
+        f:static_text {
+            title = 'Seconds between pictures in the slideshow.',
+            fill_horizontal = 1,
+        },
 
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = 'Duration (seconds):',
-                    alignment = 'right',
-                    width = 160,
-                },
-                f:edit_field {
-                    value = bind { key = 'bloomin8Duration', object = collectionSettings },
-                    immediate = true,
-                    width_in_chars = 10,
-                },
-            },
+        f:row {
+            spacing = f:control_spacing(),
             f:static_text {
-                title = 'Seconds between pictures in the slideshow.',
-                fill_horizontal = 1,
+                title = 'Playback order:',
+                alignment = 'right',
+                width = 160,
             },
+            f:popup_menu {
+                value = bind 'bloomin8RandomOrder',
+                items = {
+                    { title = 'Sequential', value = false },
+                    { title = 'Random',     value = true  },
+                },
+            },
+        },
 
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = 'Playback order:',
-                    alignment = 'right',
-                    width = 160,
-                },
-                f:popup_menu {
-                    value = bind { key = 'bloomin8RandomOrder', object = collectionSettings },
-                    items = {
-                        { title = 'Sequential', value = false },
-                        { title = 'Random',     value = true  },
-                    },
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = 'Frame orientation:',
-                    alignment = 'right',
-                    width = 160,
-                },
-                f:popup_menu {
-                    value = bind { key = 'bloomin8Orientation', object = collectionSettings },
-                    items = {
-                        { title = 'Portrait',  value = 'portrait'  },
-                        { title = 'Landscape', value = 'landscape' },
-                    },
-                },
-            },
+        f:row {
+            spacing = f:control_spacing(),
             f:static_text {
-                title = 'Set to match how your frame is physically hung on the wall.',
-                fill_horizontal = 1,
+                title = 'Frame orientation:',
+                alignment = 'right',
+                width = 160,
             },
+            f:popup_menu {
+                value = bind 'bloomin8Orientation',
+                items = {
+                    { title = 'Portrait',  value = 'portrait'  },
+                    { title = 'Landscape', value = 'landscape' },
+                },
+            },
+        },
+        f:static_text {
+            title = 'Set to match how your frame is physically hung on the wall.',
+            fill_horizontal = 1,
         },
     }
 end
@@ -314,6 +353,11 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
     -- Each collection exports to a subdirectory named after the gallery
     local destinationDirectory = LrPathUtils.child(baseDirectory, galleryName)
 
+    logger:info(string.format(
+        '[publishState] processRenderedPhotos: collection=%q galleryName=%q destinationDirectory=%q',
+        collectionName, galleryName, destinationDirectory
+    ))
+
     local ok, err = ensureDirectory(destinationDirectory)
     if not ok then
         LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
@@ -326,28 +370,108 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         LrErrors.throwUserError(err)
     end
 
+    local nRenditions    = 0
+    local nFailed        = 0
+    local failedNames    = {}
+    -- Locally-copied renditions whose publish state is committed only after a
+    -- successful device upload (or immediately when no device host is configured).
+    local localSucceeded = {}
+
     for _, rendition in exportSession:renditions { stopIfCanceled = true } do
+        nRenditions = nRenditions + 1
+
+        -- previousId is the path stored by the last successful recordPublishedPhotoId call,
+        -- or nil when this photo has never been successfully published.
+        local previousId = rendition.publishedPhotoId
+        local photo = rendition.photo
+        local photoName = '(unknown)'
+
+        if type(photo) == 'function' then
+            local ok, resolvedPhoto = pcall(function()
+                return rendition:photo()
+            end)
+
+            photo = ok and resolvedPhoto or nil
+        end
+
+        if photo and type(photo.getFormattedMetadata) == 'function' then
+            photoName = photo:getFormattedMetadata('fileName') or photoName
+        end
+
+        logger:info(string.format(
+            '[publishState] rendition #%d: photo=%q previousId=%s',
+            nRenditions, photoName,
+            previousId and string.format('%q', previousId) or 'nil (never published)'
+        ))
+
         local success, pathOrMessage = rendition:waitForRender()
 
         if not success then
-            if rendition.uploadFailed then
-                rendition:uploadFailed(pathOrMessage)
-            end
+            nFailed = nFailed + 1
+            failedNames[#failedNames + 1] = photoName
+            logger:warn(string.format(
+                '[publishState] render FAILED for %q: %s', photoName, tostring(pathOrMessage)
+            ))
+            rendition:uploadFailed(pathOrMessage)
         else
             local outputFilename = LrPathUtils.leafName(pathOrMessage)
             local destinationPath = LrPathUtils.child(destinationDirectory, outputFilename)
+
+            logger:info(string.format(
+                '[publishState] rendered %q -> destinationPath=%q (previousId match: %s)',
+                photoName, destinationPath,
+                (previousId == destinationPath) and 'yes' or
+                    (previousId == nil and 'nil – first publish' or
+                     string.format('NO (was %q)', previousId))
+            ))
+
             local copied, copyErr = copyFileReplacingExisting(pathOrMessage, destinationPath)
 
             if copied then
-                if rendition.uploadSucceeded then
-                    rendition:uploadSucceeded(destinationPath)
-                end
+                -- Defer recordPublishedPhotoId until after the device upload so that
+                -- a failed device upload leaves these photos in the publish queue.
+                localSucceeded[#localSucceeded + 1] = {
+                    rendition       = rendition,
+                    destinationPath = destinationPath,
+                    photoName       = photoName,
+                }
+                logger:info(string.format(
+                    '[publishState] local copy succeeded for %q -> %q (publish state deferred)',
+                    photoName, destinationPath
+                ))
             else
+                nFailed = nFailed + 1
+                failedNames[#failedNames + 1] = photoName
+                local failMsg = string.format('Failed copying %s to %s: %s', pathOrMessage, destinationPath, tostring(copyErr))
                 if rendition.uploadFailed then
-                    rendition:uploadFailed(string.format('Failed copying %s to %s: %s', pathOrMessage, destinationPath, copyErr))
+                    rendition:uploadFailed(failMsg)
                 end
+                logger:error(string.format(
+                    '[publishState] uploadFailed for %q: %s', photoName, failMsg
+                ))
             end
         end
+    end
+
+    local nSucceeded = #localSucceeded
+
+    logger:info(string.format(
+        '[publishState] publish loop complete: renditions=%d succeeded=%d failed=%d',
+        nRenditions, nSucceeded, nFailed
+    ))
+
+    -- Surface a warning if any file copies failed so the user can see their publish
+    -- state is not fully committed.  These photos will remain in "New Photos to
+    -- Publish" or "Modified Photos to Re-publish" and should be retried.
+    if nFailed > 0 then
+        local msg = string.format(
+            '%d of %d photo(s) could not be copied to the local publish directory and were NOT marked as published:\n\n%s\n\nThey will remain in "New Photos to Publish" until a successful publish. Check the Lightroom log for details.\n%s',
+            nFailed, nRenditions,
+            table.concat(failedNames, '\n'),
+            LIGHTROOM_LOG_HINT_MULTILINE
+        )
+        logger:error('[publishState] ' .. msg)
+        LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
     end
 
     local deviceHost = exportSettings.bloomin8DeviceHost or ''
@@ -378,13 +502,119 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
 
         local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
         if exitCode == nil or exitCode ~= 0 then
+            -- Device upload failed: mark locally-copied photos as upload-failed so
+            -- they re-appear in "New/Modified Photos to Publish" on the next run.
+            for _, item in ipairs(localSucceeded) do
+                local failMsg = string.format(
+                    'Device upload failed (exit code %s); photo will be re-queued for publish',
+                    tostring(exitCode)
+                )
+                item.rendition:uploadFailed(failMsg)
+                logger:warn(string.format(
+                    '[publishState] uploadFailed (device error) for %q: %s',
+                    item.photoName, failMsg
+                ))
+            end
             local msg = string.format(
-                'Slideshow upload finished with errors (exit code %s).\nCheck the Lightroom log for details.\n%s',
+                'Slideshow upload finished with errors (exit code %s).\n%d photo(s) have been re-queued and will appear in "New/Modified Photos to Publish".\nCheck the Lightroom log for details.\n%s',
                 tostring(exitCode),
+                nSucceeded,
                 LIGHTROOM_LOG_HINT_MULTILINE
             )
             LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
+        else
+            -- Device upload succeeded: now commit the publish state for all photos.
+            for _, item in ipairs(localSucceeded) do
+                item.rendition:recordPublishedPhotoId(item.destinationPath)
+                logger:info(string.format(
+                    '[publishState] recordPublishedPhotoId(%q) for %q',
+                    item.destinationPath, item.photoName
+                ))
+            end
         end
+    else
+        -- No device host configured: commit publish state immediately after local copy.
+        for _, item in ipairs(localSucceeded) do
+            item.rendition:recordPublishedPhotoId(item.destinationPath)
+            logger:info(string.format(
+                '[publishState] recordPublishedPhotoId(%q) for %q',
+                item.destinationPath, item.photoName
+            ))
+        end
+    end
+end
+
+-- Percent-encodes a string for use as a URI query-parameter value.
+local function urlEncode(s)
+    return (s:gsub('([^%w%-%.%_%~])', function(c)
+        return string.format('%%%02X', string.byte(c))
+    end))
+end
+
+-- Called by Lightroom when photos are removed from the published collection.
+-- photoId is the local destination path stored by rendition:recordPublishedPhotoId.
+function PublishServiceProvider.deletePublishedPhotos(functionContext, publishSettings, arrayOfPhotoIds)
+    local deviceHost = publishSettings.bloomin8DeviceHost or ''
+    local errors = {}
+
+    for _, photoId in ipairs(arrayOfPhotoIds) do
+        -- Delete local file.
+        if LrFileUtils.exists(photoId) == 'file' then
+            local deleted = LrFileUtils.delete(photoId)
+            if not deleted then
+                errors[#errors + 1] = string.format('Failed to delete local file: %s', photoId)
+            end
+        end
+
+        -- Delete from device if a host is configured.
+        -- Filename and gallery name are percent-encoded so special characters are safe in the URL.
+        -- deviceHost is validated to contain only characters valid in a hostname, IP, or port,
+        -- preventing shell metacharacter injection when it is interpolated into the curl URL.
+        if deviceHost ~= '' then
+            if deviceHost:match('[^%w%.%-%:]') then
+                errors[#errors + 1] = string.format(
+                    'Device host %q contains invalid characters; skipping device delete for %s',
+                    deviceHost, LrPathUtils.leafName(photoId)
+                )
+            else
+                local parentDir = LrPathUtils.parent(photoId)
+                if not parentDir then
+                    errors[#errors + 1] = string.format(
+                        'Cannot determine gallery from path %s; skipping device delete', photoId
+                    )
+                else
+                    local filename = LrPathUtils.leafName(photoId)
+                    local galleryName = LrPathUtils.leafName(parentDir)
+                    local url = string.format('http://%s/image/delete?image=%s&gallery=%s',
+                        deviceHost, urlEncode(filename), urlEncode(galleryName))
+                    local curlCmd = string.format('curl -sf -X POST %q', url)
+                    local handle = io.popen('{ ' .. curlCmd .. '; }; printf "\\nBLOOMIN8_EXIT:%d" $?', 'r')
+                    local output = handle and handle:read('*all') or ''
+                    if handle then handle:close() end
+                    local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
+                    if exitCode == nil then
+                        errors[#errors + 1] = string.format(
+                            'Failed to delete %s from device gallery %s (curl produced no exit code)',
+                            filename, galleryName
+                        )
+                    elseif exitCode ~= 0 then
+                        errors[#errors + 1] = string.format(
+                            'Failed to delete %s from device gallery %s (curl exit %d)',
+                            filename, galleryName, exitCode
+                        )
+                    end
+                end
+            end
+        end
+    end
+
+    if #errors > 0 then
+        LrDialogs.message(
+            'Bloomin8 Publish Service',
+            string.format('%d deletion(s) failed:\n', #errors) ..
+                table.concat(errors, '\n') .. '\n' .. LIGHTROOM_LOG_HINT_MULTILINE,
+            'warning'
+        )
     end
 end
 

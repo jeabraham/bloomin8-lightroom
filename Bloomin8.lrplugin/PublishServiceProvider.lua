@@ -546,7 +546,8 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
 
         local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
         -- Strip the sentinel line from the output before logging/displaying it.
-        local scriptOutput = output:gsub('\nBLOOMIN8_EXIT:%d+%s*$', ''):gsub('BLOOMIN8_EXIT:%d+%s*$', '')
+        -- printf always prefixes the sentinel with \n so a single pattern suffices.
+        local scriptOutput = output:gsub('\nBLOOMIN8_EXIT:%d+%s*$', '')
         if exitCode == nil or exitCode ~= 0 then
             -- Log the full script output so the reason appears in bloomin8.log.
             logger:error(string.format(
@@ -569,7 +570,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             -- Include the last few lines of script output in the dialog so the user
             -- sees the actual failure reason without needing to find the log file.
             local outputLines = {}
-            for line in (scriptOutput .. '\n'):gmatch('([^\n]*)\n') do
+            for line in scriptOutput:gmatch('[^\n]+') do
                 outputLines[#outputLines + 1] = line
             end
             local tailStart = math.max(1, #outputLines - 9)
@@ -577,7 +578,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             for i = tailStart, #outputLines do
                 tailLines[#tailLines + 1] = outputLines[i]
             end
-            local outputSnippet = table.concat(tailLines, '\n'):match('^%s*(.-)%s*$') or ''
+            local outputSnippet = table.concat(tailLines, '\n')
             local msg
             if outputSnippet ~= '' then
                 msg = string.format(

@@ -404,12 +404,12 @@ for image_path in "${IMAGE_FILES[@]}"; do
     echo
     echo "==> Uploading processed file:"
     ls -la "$prepared_image"
-    echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
+    echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}"
     perform_request \
         -H 'Accept: application/json' \
         -X POST \
         -F "image=@${prepared_image};type=image/jpeg" \
-        "${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
+        "${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}"
     echo "HTTP ${LAST_STATUS}"
     printf '%s\n' "$LAST_BODY"
     [[ "$LAST_STATUS" == "200" ]] || die "upload request failed for: $image_path"

@@ -210,7 +210,12 @@ end
 local function copyFileReplacingExisting(sourcePath, destinationPath)
     local tempPath
     local backupPath
-    local token = string.format('%d-%d', os.time(), math.floor((os.clock() or 0) * 1000000) % 1000000)
+    local okClock, clockValue = pcall(os.clock)
+    local clockToken = 0
+    if okClock and type(clockValue) == 'number' then
+        clockToken = math.floor(clockValue * 1000000) % 1000000
+    end
+    local token = string.format('%d-%d', os.time(), clockToken)
     local suffix = 0
 
     repeat
@@ -226,7 +231,7 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
 
     local function cleanupTemp()
         if LrFileUtils.exists(tempPath) ~= 'file' then
-            return false, string.format('Temporary file already missing at %s', tempPath)
+            return false, string.format('Cannot clean up temporary file because it does not exist at %s', tempPath)
         end
 
         local removedTemp = LrFileUtils.delete(tempPath)
@@ -268,22 +273,22 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
         local cleaned, cleanupErr = cleanupTemp()
         if not restored then
             if not cleaned then
-                return false, string.format('Failed replacing %s with %s, failed restoring backup from %s, and %s', destinationPath, sourcePath, backupPath, cleanupErr)
+                return false, string.format('Failed to replace %s with %s, failed to restore backup from %s: %s', destinationPath, sourcePath, backupPath, cleanupErr)
             end
-            return false, string.format('Failed replacing %s with %s and failed restoring backup from %s', destinationPath, sourcePath, backupPath)
+            return false, string.format('Failed to replace %s with %s and failed to restore backup from %s', destinationPath, sourcePath, backupPath)
         end
         if not cleaned then
-            return false, string.format('Failed replacing %s with %s and restoring backup; %s', destinationPath, sourcePath, cleanupErr)
+            return false, string.format('Failed to replace %s with %s; backup restored but cleanup failed: %s', destinationPath, sourcePath, cleanupErr)
         end
-        return false, string.format('Failed replacing %s with %s; original file restored from %s', destinationPath, sourcePath, backupPath)
+        return false, string.format('Failed to replace %s with %s; original file restored from %s', destinationPath, sourcePath, backupPath)
     end
 
     local cleaned, cleanupErr = cleanupTemp()
     if not cleaned then
-        return false, string.format('Failed replacing %s with %s; %s', destinationPath, sourcePath, cleanupErr)
+        return false, string.format('Failed to replace %s with %s; %s', destinationPath, sourcePath, cleanupErr)
     end
 
-    return false, string.format('Failed replacing %s with %s', destinationPath, sourcePath)
+    return false, string.format('Failed to replace %s with %s', destinationPath, sourcePath)
 end
 
 local function copySlideshowHelper(destinationDirectory)

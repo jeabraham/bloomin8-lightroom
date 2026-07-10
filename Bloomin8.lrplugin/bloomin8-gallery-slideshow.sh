@@ -327,6 +327,7 @@ for image_path in "${IMAGE_FILES[@]}"; do
     remote_filename="$(printf '%04d_%s' "$image_index" "$(basename "$image_path")")"
     remote_filename="$(sanitize_component "$remote_filename")"
     prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
+    [[ -f "$prepared_image" ]] || die "Image preparation failed (ImageMagick error?) for: $image_path"
 
     echo
     echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"

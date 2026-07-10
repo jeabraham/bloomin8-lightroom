@@ -215,18 +215,18 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
     if okClock and type(clockValue) == 'number' then
         clockToken = math.floor(clockValue * 1000000) % 1000000
     end
-    local token = string.format('%d-%d', os.time(), clockToken)
+    local timestampToken = string.format('%d-%d', os.time(), clockToken)
     local suffix = 0
 
     repeat
         suffix = suffix + 1
-        tempPath = string.format('%s.bloomin8-tmp-%d-%d', destinationPath, token, suffix)
+        tempPath = string.format('%s.bloomin8-tmp-%s-%d', destinationPath, timestampToken, suffix)
     until LrFileUtils.exists(tempPath) ~= 'file'
 
     suffix = 0
     repeat
         suffix = suffix + 1
-        backupPath = string.format('%s.bloomin8-backup-%d-%d', destinationPath, token, suffix)
+        backupPath = string.format('%s.bloomin8-backup-%s-%d', destinationPath, timestampToken, suffix)
     until LrFileUtils.exists(backupPath) ~= 'file'
 
     local function cleanupTemp()
@@ -236,7 +236,7 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
 
         local removedTemp = LrFileUtils.delete(tempPath)
         if not removedTemp then
-            return false, string.format('Failed removing temporary file at %s', tempPath)
+            return false, string.format('Failed to clean up temporary file at %s', tempPath)
         end
         return true
     end
@@ -255,10 +255,10 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
     if LrFileUtils.exists(destinationPath) == 'file' then
         if not os.rename(destinationPath, backupPath) then
             local cleaned, cleanupErr = cleanupTemp()
-            if not cleaned then
-                return false, string.format('Failed backing up existing file at %s to %s; %s', destinationPath, backupPath, cleanupErr)
+            if cleaned then
+                return false, string.format('Failed backing up existing file at %s to %s', destinationPath, backupPath)
             end
-            return false, string.format('Failed backing up existing file at %s to %s', destinationPath, backupPath)
+            return false, string.format('Failed backing up existing file at %s to %s; %s', destinationPath, backupPath, cleanupErr)
         end
 
         if os.rename(tempPath, destinationPath) then

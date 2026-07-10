@@ -246,6 +246,24 @@ local function ensureDirectory(path)
     return true
 end
 
+local function copyFileReplacingExisting(sourcePath, destinationPath)
+    -- os.rename is not available in Lightroom's Lua sandbox, so delete-then-copy
+    -- is used to replace an existing destination file.
+    if LrFileUtils.exists(destinationPath) == 'file' then
+        local deleted = LrFileUtils.delete(destinationPath)
+        if not deleted then
+            return false, string.format('Failed to delete existing file at %s', destinationPath)
+        end
+    end
+
+    local copied = LrFileUtils.copy(sourcePath, destinationPath)
+    if not copied then
+        return false, string.format('Failed copying %s to %s', sourcePath, destinationPath)
+    end
+
+    return true
+end
+
 local function copySlideshowHelper(destinationDirectory)
     local helperSourcePath = LrPathUtils.child(_PLUGIN.path, SLIDESHOW_HELPER_NAME)
     local helperDestinationPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
@@ -254,13 +272,9 @@ local function copySlideshowHelper(destinationDirectory)
         return false, string.format('Missing slideshow helper script in plugin bundle: %s', helperSourcePath)
     end
 
-    if LrFileUtils.exists(helperDestinationPath) == 'file' then
-        LrFileUtils.delete(helperDestinationPath)
-    end
-
-    local copied = LrFileUtils.copy(helperSourcePath, helperDestinationPath)
+    local copied, err = copyFileReplacingExisting(helperSourcePath, helperDestinationPath)
     if not copied then
-        return false, string.format('Failed copying slideshow helper from %s to %s', helperSourcePath, helperDestinationPath)
+        return false, string.format('Failed copying slideshow helper from %s to %s: %s', helperSourcePath, helperDestinationPath, err)
     end
 
     return true
@@ -402,6 +416,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         else
             local outputFilename = LrPathUtils.leafName(pathOrMessage)
             local destinationPath = LrPathUtils.child(destinationDirectory, outputFilename)
+<<<<<<< HEAD
 
             logger:info(string.format(
                 '[publishState] rendered %q -> destinationPath=%q (previousId match: %s)',
@@ -423,6 +438,9 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             end
 
             local copied = LrFileUtils.copy(pathOrMessage, destinationPath)
+=======
+            local copied, copyErr = copyFileReplacingExisting(pathOrMessage, destinationPath)
+>>>>>>> origin/main
 
             if copied then
                 -- Defer recordPublishedPhotoId until after the device upload so that
@@ -437,6 +455,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
                     photoName, destinationPath
                 ))
             else
+<<<<<<< HEAD
                 nFailed = nFailed + 1
                 failedNames[#failedNames + 1] = photoName
                 local failMsg = string.format('Failed copying %s to %s', pathOrMessage, destinationPath)
@@ -444,6 +463,11 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
                 logger:error(string.format(
                     '[publishState] uploadFailed for %q: %s', photoName, failMsg
                 ))
+=======
+                if rendition.uploadFailed then
+                    rendition:uploadFailed(string.format('Failed copying %s to %s: %s', pathOrMessage, destinationPath, copyErr))
+                end
+>>>>>>> origin/main
             end
         end
     end

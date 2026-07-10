@@ -23,6 +23,13 @@ do
                 '[logging] Falling back to print logging because logfile logging could not be enabled: %s',
                 tostring(enableErr)
             ))
+        else
+            pcall(function()
+                print(string.format(
+                    '[bloomin8][logging] Failed to enable logfile logging (%s) and print logging fallback.',
+                    tostring(enableErr)
+                ))
+            end)
         end
     end
 end

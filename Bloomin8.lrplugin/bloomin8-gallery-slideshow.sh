@@ -349,6 +349,18 @@ else
     else
         echo "HTTP ${LAST_STATUS:-unknown} (gallery may already exist; continuing)"
     fi
+
+    # Stop any active slideshow before uploading.  The firmware returns status 3
+    # (not 100) when POST /upload is called while a gallery slideshow is playing,
+    # preventing the upload from being accepted.  POST /stop pauses playback so
+    # the uploads succeed; POST /show at the end of this script restarts it.
+    echo
+    echo "==> POST ${BASE_URL}/stop"
+    perform_request \
+        -H 'Accept: application/json' \
+        -X POST \
+        "${BASE_URL}/stop" || true
+    echo "HTTP ${LAST_STATUS:-unknown}"
 fi
 
 # Indexed array of remote filenames already claimed in this run.
@@ -404,12 +416,12 @@ for image_path in "${IMAGE_FILES[@]}"; do
     echo
     echo "==> Uploading processed file:"
     ls -la "$prepared_image"
-    echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
+    echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}"
     perform_request \
         -H 'Accept: application/json' \
         -X POST \
         -F "image=@${prepared_image};type=image/jpeg" \
-        "${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
+        "${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}"
     echo "HTTP ${LAST_STATUS}"
     printf '%s\n' "$LAST_BODY"
     [[ "$LAST_STATUS" == "200" ]] || die "upload request failed for: $image_path"

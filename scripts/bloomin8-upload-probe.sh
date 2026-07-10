@@ -357,7 +357,7 @@ if [[ "$OPEN_PREVIEW" -eq 1 ]]; then
     fi
 fi
 
-UPLOAD_URL="${BASE_URL}/upload?filename=${SAFE_FILENAME}&gallery=${SAFE_GALLERY}&show_now=${SHOW_NOW}"
+UPLOAD_URL="${BASE_URL}/upload?filename=${SAFE_FILENAME}&gallery=${SAFE_GALLERY}"
 
 # Delete any existing copy of the file so the device renders fresh from the
 # new upload rather than serving a cached version of the old render.
@@ -390,9 +390,8 @@ grep -Eq '"status"[[:space:]]*:[[:space:]]*100' <<<"$LAST_BODY" || die "upload d
 
 # ---------------------------------------------------------------------------
 # If --show-now was requested, follow up with an explicit POST /show so the
-# frame re-renders the freshly uploaded file.  The show_now=1 upload flag may
-# not trigger a re-render when the same filename is already in the display
-# queue; the /show endpoint with an explicit image path is more reliable.
+# frame re-renders the freshly uploaded file.  The /show endpoint with an
+# explicit image path is more reliable than upload query flags.
 # ---------------------------------------------------------------------------
 if [[ "$SHOW_NOW" -eq 1 ]]; then
     SHOW_URL="${BASE_URL}/show"

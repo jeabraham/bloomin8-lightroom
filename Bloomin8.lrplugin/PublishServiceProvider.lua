@@ -367,7 +367,16 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         -- previousId is the path stored by the last successful uploadSucceeded call,
         -- or nil when this photo has never been successfully published.
         local previousId = rendition.publishedPhotoId
-        local photoName  = rendition:photo():getFormattedMetadata('fileName') or '(unknown)'
+        local photo = rendition.photo
+        local photoName = '(unknown)'
+
+        if type(photo) == 'function' then
+            photo = rendition:photo()
+        end
+
+        if photo and photo.getFormattedMetadata then
+            photoName = photo:getFormattedMetadata('fileName') or photoName
+        end
 
         logger:info(string.format(
             '[publishState] rendition #%d: photo=%q previousId=%s',

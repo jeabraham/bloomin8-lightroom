@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PATH="/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+export PATH
 
 SCRIPT_NAME="$(basename "$0")"
 FIRMWARE_UPLOAD_SUCCESS=100
@@ -24,6 +26,10 @@ Options:
   --connect-timeout N                Curl connect timeout in seconds (default: 5)
   --max-time N                       Curl total timeout in seconds (default: 60)
   --help                             Show this message
+
+Environment:
+  BLOOMIN8_MAGICK_BIN                Absolute path to ImageMagick binary to use
+                                     (for Lightroom-launched shells with limited PATH)
 EOF
 }
 
@@ -34,6 +40,31 @@ die() {
 
 require_command() {
     command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
+}
+
+find_command_path() {
+    local cmd="$1"
+    local path_candidate
+
+    if path_candidate="$(command -v "$cmd" 2>/dev/null)"; then
+        printf '%s' "$path_candidate"
+        return 0
+    fi
+
+    for path_candidate in \
+        "/opt/homebrew/bin/${cmd}" \
+        "/usr/local/bin/${cmd}" \
+        "/opt/local/bin/${cmd}" \
+        "/usr/bin/${cmd}" \
+        "/bin/${cmd}"
+    do
+        if [[ -x "$path_candidate" ]]; then
+            printf '%s' "$path_candidate"
+            return 0
+        fi
+    done
+
+    return 1
 }
 
 sanitize_component() {
@@ -214,12 +245,15 @@ done
 
 require_command curl
 
-if command -v magick >/dev/null 2>&1; then
-    MAGICK_CONVERT=(magick)
-elif command -v convert >/dev/null 2>&1; then
-    MAGICK_CONVERT=(convert)
+if [[ -n "${BLOOMIN8_MAGICK_BIN:-}" ]]; then
+    [[ -x "${BLOOMIN8_MAGICK_BIN}" ]] || die "BLOOMIN8_MAGICK_BIN is not executable: ${BLOOMIN8_MAGICK_BIN}"
+    MAGICK_CONVERT=("${BLOOMIN8_MAGICK_BIN}")
+elif MAGICK_PATH="$(find_command_path magick)"; then
+    MAGICK_CONVERT=("${MAGICK_PATH}")
+elif MAGICK_PATH="$(find_command_path convert)"; then
+    MAGICK_CONVERT=("${MAGICK_PATH}")
 else
-    die $'ImageMagick is required for image processing.\n  macOS : brew install imagemagick\n  Debian: apt-get install imagemagick'
+    die $'ImageMagick is required for image processing.\n  macOS : brew install imagemagick\n  Debian: apt-get install imagemagick\nIf Lightroom cannot find it, set BLOOMIN8_MAGICK_BIN to the full executable path.'
 fi
 
 if [[ "$HOST" == http://* || "$HOST" == https://* ]]; then

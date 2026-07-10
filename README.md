@@ -13,6 +13,20 @@ API reference: https://bloomin8.readme.io/reference/get_deviceinfo
 
 ---
 
+## Prerequisites
+
+- Adobe Photoshop Lightroom Classic
+- **ImageMagick** (required by `bloomin8-gallery-slideshow.sh` for resize/pad/rotate processing)
+  - macOS: `brew install imagemagick`
+  - Debian/Ubuntu: `sudo apt-get install imagemagick`
+- Optional (for shell-level API diagnostics): `jq`
+
+If the helper works in Terminal but fails from Lightroom, Lightroom may be running
+with a limited `PATH`. The helper now searches common ImageMagick install paths,
+and you can set `BLOOMIN8_MAGICK_BIN` to an absolute executable path if needed.
+
+---
+
 ## Current implementation status
 
 This repository now implements **Step 1** (foundation + local publish pipeline).
@@ -198,6 +212,18 @@ When **Device host** is set, Lightroom will run `bloomin8-gallery-slideshow.sh`
 automatically at the end of each publish, uploading all rendered photos and
 starting playback on the frame.  If the script exits with an error a warning
 dialog will appear.
+
+Each publish also writes `bloomin8-run-slideshow.sh` into the publish directory.
+It is a single-command wrapper that calls `bloomin8-gallery-slideshow.sh` with
+the current Lightroom settings (host, gallery, duration, playback order,
+orientation), and forwards any extra CLI arguments you append.
+
+## Lightroom logs (for troubleshooting)
+
+If slideshow upload fails, check the Lightroom log:
+
+- macOS: `~/Library/Logs/Adobe/Lightroom/`
+- Windows: `%AppData%\Adobe\Lightroom\Logs\`
 
 ---
 

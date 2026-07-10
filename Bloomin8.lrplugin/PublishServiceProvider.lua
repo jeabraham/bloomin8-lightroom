@@ -210,17 +210,18 @@ end
 local function copyFileReplacingExisting(sourcePath, destinationPath)
     local tempPath
     local backupPath
+    local token = os.time()
     local suffix = 0
 
     repeat
         suffix = suffix + 1
-        tempPath = string.format('%s.bloomin8-tmp-%d', destinationPath, suffix)
+        tempPath = string.format('%s.bloomin8-tmp-%d-%d', destinationPath, token, suffix)
     until LrFileUtils.exists(tempPath) ~= 'file'
 
     suffix = 0
     repeat
         suffix = suffix + 1
-        backupPath = string.format('%s.bloomin8-backup-%d', destinationPath, suffix)
+        backupPath = string.format('%s.bloomin8-backup-%d-%d', destinationPath, token, suffix)
     until LrFileUtils.exists(backupPath) ~= 'file'
 
     local function cleanupTemp()
@@ -238,6 +239,7 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
         return false, string.format('Failed copying %s to temporary path %s', sourcePath, tempPath)
     end
 
+    -- Try the direct rename first so platforms that replace on rename can avoid the backup path.
     if os.rename(tempPath, destinationPath) then
         return true
     end
@@ -261,11 +263,14 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
 
         local restored = os.rename(backupPath, destinationPath)
         local cleaned, cleanupErr = cleanupTemp()
+        if not restored then
+            if not cleaned then
+                return false, string.format('Failed replacing %s with %s, failed restoring backup from %s, and %s', destinationPath, sourcePath, backupPath, cleanupErr)
+            end
+            return false, string.format('Failed replacing %s with %s and failed restoring backup from %s', destinationPath, sourcePath, backupPath)
+        end
         if not cleaned then
             return false, string.format('Failed replacing %s with %s and restoring backup; %s', destinationPath, sourcePath, cleanupErr)
-        end
-        if not restored then
-            return false, string.format('Failed replacing %s with %s and failed restoring backup from %s', destinationPath, sourcePath, backupPath)
         end
         return false, string.format('Failed replacing %s with %s; original file restored from %s', destinationPath, sourcePath, backupPath)
     end

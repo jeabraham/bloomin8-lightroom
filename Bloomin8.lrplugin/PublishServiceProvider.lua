@@ -371,10 +371,14 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         local photoName = '(unknown)'
 
         if type(photo) == 'function' then
-            photo = rendition:photo()
+            local ok, resolvedPhoto = pcall(function()
+                return rendition:photo()
+            end)
+
+            photo = ok and resolvedPhoto or nil
         end
 
-        if photo and photo.getFormattedMetadata then
+        if photo and type(photo.getFormattedMetadata) == 'function' then
             photoName = photo:getFormattedMetadata('fileName') or photoName
         end
 

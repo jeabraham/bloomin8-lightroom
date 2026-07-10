@@ -235,7 +235,7 @@ append.
 If slideshow upload fails, the plugin writes diagnostic output (including the
 full shell script output) to its own log file:
 
-- macOS: `~/Library/Application Support/Adobe/Lightroom/bloomin8.log`
+- macOS: `~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bloomin8.log`
 - Windows: `%AppData%\Adobe\Lightroom\Logs\bloomin8.log`
 
 The failure dialog also shows the last several lines of the script's output

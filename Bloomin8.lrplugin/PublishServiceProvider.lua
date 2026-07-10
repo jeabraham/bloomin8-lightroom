@@ -37,8 +37,8 @@ end
 local PublishServiceProvider = {}
 local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
 local SLIDESHOW_WRAPPER_NAME = 'bloomin8-run-slideshow.sh'
-local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check the Bloomin8 plugin log: macOS ~/Library/Application Support/Adobe/Lightroom/bloomin8.log ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
-local LIGHTROOM_LOG_HINT_MULTILINE = 'Bloomin8 plugin log:\n  macOS: ~/Library/Application Support/Adobe/Lightroom/bloomin8.log\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
+local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check the Bloomin8 plugin log: macOS ~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bloomin8.log ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
+local LIGHTROOM_LOG_HINT_MULTILINE = 'Bloomin8 plugin log:\n  macOS: ~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bloomin8.log\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
 
 PublishServiceProvider.supportsIncrementalPublish = 'only'
 

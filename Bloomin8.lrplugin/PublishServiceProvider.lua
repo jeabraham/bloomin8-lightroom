@@ -208,9 +208,12 @@ local function ensureDirectory(path)
 end
 
 local function copyFileReplacingExisting(sourcePath, destinationPath)
-    local tempPath = string.format('%s.bloomin8-tmp-%d', destinationPath, math.floor((os.clock() or 0) * 1000000))
+    local tempPath = string.format('%s.bloomin8-tmp', destinationPath)
     if LrFileUtils.exists(tempPath) == 'file' then
-        LrFileUtils.delete(tempPath)
+        local deleted = LrFileUtils.delete(tempPath)
+        if not deleted then
+            return false, string.format('Failed removing temporary file at %s', tempPath)
+        end
     end
 
     local copied = LrFileUtils.copy(sourcePath, tempPath)
@@ -225,7 +228,10 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
     if LrFileUtils.exists(destinationPath) == 'file' then
         local deleted = LrFileUtils.delete(destinationPath)
         if not deleted then
-            LrFileUtils.delete(tempPath)
+            local removedTemp = LrFileUtils.delete(tempPath)
+            if not removedTemp then
+                return false, string.format('Failed removing existing file at %s and temporary file at %s', destinationPath, tempPath)
+            end
             return false, string.format('Failed removing existing file at %s', destinationPath)
         end
 
@@ -234,7 +240,11 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
         end
     end
 
-    LrFileUtils.delete(tempPath)
+    local removedTemp = LrFileUtils.delete(tempPath)
+    if not removedTemp then
+        return false, string.format('Failed replacing %s with %s and cleaning temporary file %s', destinationPath, sourcePath, tempPath)
+    end
+
     return false, string.format('Failed replacing %s with %s', destinationPath, sourcePath)
 end
 

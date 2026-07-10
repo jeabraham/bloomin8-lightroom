@@ -207,22 +207,6 @@ local function ensureDirectory(path)
     return true
 end
 
-local function copySlideshowHelper(destinationDirectory)
-    local helperSourcePath = LrPathUtils.child(_PLUGIN.path, SLIDESHOW_HELPER_NAME)
-    local helperDestinationPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
-
-    if LrFileUtils.exists(helperSourcePath) ~= 'file' then
-        return false, string.format('Missing slideshow helper script in plugin bundle: %s', helperSourcePath)
-    end
-
-    local copied, err = copyFileReplacingExisting(helperSourcePath, helperDestinationPath)
-    if not copied then
-        return false, string.format('Failed copying slideshow helper from %s to %s: %s', helperSourcePath, helperDestinationPath, err)
-    end
-
-    return true
-end
-
 local function copyFileReplacingExisting(sourcePath, destinationPath)
     if LrFileUtils.exists(destinationPath) == 'file' then
         local deleted = LrFileUtils.delete(destinationPath)
@@ -234,6 +218,22 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
     local copied = LrFileUtils.copy(sourcePath, destinationPath)
     if not copied then
         return false, 'copy failed'
+    end
+
+    return true
+end
+
+local function copySlideshowHelper(destinationDirectory)
+    local helperSourcePath = LrPathUtils.child(_PLUGIN.path, SLIDESHOW_HELPER_NAME)
+    local helperDestinationPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
+
+    if LrFileUtils.exists(helperSourcePath) ~= 'file' then
+        return false, string.format('Missing slideshow helper script in plugin bundle: %s', helperSourcePath)
+    end
+
+    local copied, err = copyFileReplacingExisting(helperSourcePath, helperDestinationPath)
+    if not copied then
+        return false, string.format('Failed copying slideshow helper from %s to %s: %s', helperSourcePath, helperDestinationPath, err)
     end
 
     return true

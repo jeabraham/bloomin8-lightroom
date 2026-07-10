@@ -8,7 +8,9 @@ local LrView = import 'LrView'
 local bind = LrView.bind
 
 local logger = LrLogger('bloomin8')
-logger:enable('all')
+pcall(function()
+    logger:enable('logfile')
+end)
 
 local PublishServiceProvider = {}
 local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
@@ -99,7 +101,19 @@ end
 
 -- Per-collection settings: gallery name, duration, playback order, frame orientation.
 function PublishServiceProvider.viewForCollectionSettings(f, publishSettings, info)
-    local collectionSettings = assert(info.collectionSettings)
+    local collectionSettings = info and info.collectionSettings
+    if not collectionSettings then
+        logger:warn('[collectionSettings] Lightroom did not provide collectionSettings for the current item')
+        return f:group_box {
+            title = 'Bloomin8 Collection Settings',
+            fill_horizontal = 1,
+
+            f:static_text {
+                title = 'Collection settings are unavailable for this item.',
+                fill_horizontal = 1,
+            },
+        }
+    end
 
     if collectionSettings.bloomin8GalleryName == nil then
         collectionSettings.bloomin8GalleryName = ''
@@ -114,82 +128,81 @@ function PublishServiceProvider.viewForCollectionSettings(f, publishSettings, in
         collectionSettings.bloomin8Orientation = 'portrait'
     end
 
-    return f:view {
-        f:group_box {
-            title = 'Bloomin8 Collection Settings',
+    return f:group_box {
+        title = 'Bloomin8 Collection Settings',
+        fill_horizontal = 1,
+        bind_to_object = collectionSettings,
+
+        f:row {
+            spacing = f:control_spacing(),
+            f:static_text {
+                title = 'Gallery name:',
+                alignment = 'right',
+                width = 160,
+            },
+            f:edit_field {
+                value = bind 'bloomin8GalleryName',
+                immediate = true,
+                width_in_chars = 30,
+            },
+        },
+        f:static_text {
+            title = 'Gallery name on the device and name of the export subdirectory. Leave blank to use the collection name.',
             fill_horizontal = 1,
+        },
 
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = 'Gallery name:',
-                    alignment = 'right',
-                    width = 160,
-                },
-                f:edit_field {
-                    value = bind { key = 'bloomin8GalleryName', object = collectionSettings },
-                    immediate = true,
-                    width_in_chars = 30,
-                },
-            },
+        f:row {
+            spacing = f:control_spacing(),
             f:static_text {
-                title = 'Gallery name on the device and name of the export subdirectory. Leave blank to use the collection name.',
-                fill_horizontal = 1,
+                title = 'Duration (seconds):',
+                alignment = 'right',
+                width = 160,
             },
+            f:edit_field {
+                value = bind 'bloomin8Duration',
+                immediate = true,
+                width_in_chars = 10,
+            },
+        },
+        f:static_text {
+            title = 'Seconds between pictures in the slideshow.',
+            fill_horizontal = 1,
+        },
 
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = 'Duration (seconds):',
-                    alignment = 'right',
-                    width = 160,
-                },
-                f:edit_field {
-                    value = bind { key = 'bloomin8Duration', object = collectionSettings },
-                    immediate = true,
-                    width_in_chars = 10,
-                },
-            },
+        f:row {
+            spacing = f:control_spacing(),
             f:static_text {
-                title = 'Seconds between pictures in the slideshow.',
-                fill_horizontal = 1,
+                title = 'Playback order:',
+                alignment = 'right',
+                width = 160,
             },
+            f:popup_menu {
+                value = bind 'bloomin8RandomOrder',
+                items = {
+                    { title = 'Sequential', value = false },
+                    { title = 'Random',     value = true  },
+                },
+            },
+        },
 
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = 'Playback order:',
-                    alignment = 'right',
-                    width = 160,
-                },
-                f:popup_menu {
-                    value = bind { key = 'bloomin8RandomOrder', object = collectionSettings },
-                    items = {
-                        { title = 'Sequential', value = false },
-                        { title = 'Random',     value = true  },
-                    },
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = 'Frame orientation:',
-                    alignment = 'right',
-                    width = 160,
-                },
-                f:popup_menu {
-                    value = bind { key = 'bloomin8Orientation', object = collectionSettings },
-                    items = {
-                        { title = 'Portrait',  value = 'portrait'  },
-                        { title = 'Landscape', value = 'landscape' },
-                    },
-                },
-            },
+        f:row {
+            spacing = f:control_spacing(),
             f:static_text {
-                title = 'Set to match how your frame is physically hung on the wall.',
-                fill_horizontal = 1,
+                title = 'Frame orientation:',
+                alignment = 'right',
+                width = 160,
             },
+            f:popup_menu {
+                value = bind 'bloomin8Orientation',
+                items = {
+                    { title = 'Portrait',  value = 'portrait'  },
+                    { title = 'Landscape', value = 'landscape' },
+                },
+            },
+        },
+        f:static_text {
+            title = 'Set to match how your frame is physically hung on the wall.',
+            fill_horizontal = 1,
         },
     }
 end

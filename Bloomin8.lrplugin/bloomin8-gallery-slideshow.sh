@@ -351,7 +351,19 @@ else
     fi
 fi
 
-declare -A used_remote_names=()
+# Indexed array of remote filenames already claimed in this run.
+# Using an indexed array (bash 3.2-compatible) instead of an associative
+# array (which requires bash 4+, unavailable on stock macOS).
+used_remote_names=()
+
+name_in_use() {
+    local name="$1" n
+    for n in "${used_remote_names[@]+"${used_remote_names[@]}"}"; do
+        [[ "$n" == "$name" ]] && return 0
+    done
+    return 1
+}
+
 image_index=0
 for image_path in "${IMAGE_FILES[@]}"; do
     image_index=$((image_index + 1))
@@ -368,11 +380,11 @@ for image_path in "${IMAGE_FILES[@]}"; do
     fi
     remote_filename="$base_remote"
     suffix=2
-    while [[ -v used_remote_names["$remote_filename"] ]]; do
+    while name_in_use "$remote_filename"; do
         remote_filename="${stem}_${suffix}${ext}"
         suffix=$(( suffix + 1 ))
     done
-    used_remote_names["$remote_filename"]=1
+    used_remote_names+=("$remote_filename")
 
     prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
     [[ -f "$prepared_image" ]] || die "Image preparation failed (ImageMagick error?) for: $image_path"

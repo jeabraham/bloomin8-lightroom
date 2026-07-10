@@ -217,7 +217,7 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
 
     local copied = LrFileUtils.copy(sourcePath, destinationPath)
     if not copied then
-        return false, 'copy failed'
+        return false, string.format('Failed copying %s to %s', sourcePath, destinationPath)
     end
 
     return true

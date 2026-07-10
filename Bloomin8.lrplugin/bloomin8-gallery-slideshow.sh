@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 FIRMWARE_UPLOAD_SUCCESS=100
+RETRY_COUNT=2
+RETRY_DELAY=1
 
 usage() {
     cat <<EOF
@@ -23,6 +25,7 @@ Options:
   --random                           Shuffle images into a random upload order
   --connect-timeout N                Curl connect timeout in seconds (default: 5)
   --max-time N                       Curl total timeout in seconds (default: 60)
+  --debug                            Enable verbose request diagnostics
   --help                             Show this message
 
 Environment:
@@ -34,6 +37,12 @@ EOF
 die() {
     echo "Error: $*" >&2
     exit 1
+}
+
+debug_log() {
+    if [[ "${DEBUG:-0}" -eq 1 ]]; then
+        echo "[debug] $*" >&2
+    fi
 }
 
 require_command() {
@@ -76,18 +85,79 @@ sanitize_component() {
 }
 
 perform_request() {
-    local response
+    local response curl_exit=0
+    local curl_args=(
+        -sS
+        --connect-timeout "$CONNECT_TIMEOUT"
+        --max-time "$MAX_TIME"
+        -w $'\nHTTP_STATUS:%{http_code}\n'
+    )
 
-    response="$(
-        curl -sS \
-            --connect-timeout "$CONNECT_TIMEOUT" \
-            --max-time "$MAX_TIME" \
-            -w $'\nHTTP_STATUS:%{http_code}\n' \
-            "$@"
-    )"
+    if [[ "$DEBUG" -eq 1 ]]; then
+        curl_args+=(--verbose)
+        debug_log "curl $(printf '%q ' "${curl_args[@]}" "$@")"
+    fi
 
+    if ! response="$(curl "${curl_args[@]}" "$@" 2>&1)"; then
+        curl_exit=$?
+    fi
+
+    LAST_CURL_EXIT="$curl_exit"
     LAST_STATUS="$(printf '%s\n' "$response" | sed -n 's/^HTTP_STATUS://p' | tail -n 1)"
     LAST_BODY="$(printf '%s\n' "$response" | sed '$d')"
+
+    if [[ -z "$LAST_STATUS" ]]; then
+        LAST_STATUS="000"
+    fi
+
+    debug_log "curl_exit=${LAST_CURL_EXIT} http=${LAST_STATUS}"
+}
+
+should_retry_request() {
+    if [[ "$LAST_CURL_EXIT" -ne 0 ]]; then
+        return 0
+    fi
+
+    case "$LAST_STATUS" in
+        000|408|425|429|500|502|503|504)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+perform_request_with_retry() {
+    local action="$1"
+    shift
+
+    local attempt=1
+    local max_attempts=$(( RETRY_COUNT + 1 ))
+
+    while true; do
+        perform_request "$@"
+
+        if [[ "$LAST_CURL_EXIT" -eq 0 && "$LAST_STATUS" == "200" ]]; then
+            return 0
+        fi
+
+        if [[ "$attempt" -ge "$max_attempts" ]] || ! should_retry_request; then
+            return 0
+        fi
+
+        echo "Warning: ${action} attempt ${attempt}/${max_attempts} failed (curl=${LAST_CURL_EXIT}, http=${LAST_STATUS}); retrying in ${RETRY_DELAY}s..." >&2
+        attempt=$(( attempt + 1 ))
+        sleep "$RETRY_DELAY"
+    done
+}
+
+upload_response_succeeded() {
+    if command -v jq >/dev/null 2>&1; then
+        [[ "$(printf '%s' "$LAST_BODY" | jq -r '.status // empty' 2>/dev/null)" == "${FIRMWARE_UPLOAD_SUCCESS}" ]]
+    else
+        grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY"
+    fi
 }
 
 extract_json_number() {
@@ -181,6 +251,7 @@ PAD_COLOR="black"
 CONNECT_TIMEOUT=5
 MAX_TIME=60
 RANDOM_ORDER=0
+DEBUG=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -219,6 +290,10 @@ while [[ $# -gt 0 ]]; do
         --max-time)
             MAX_TIME="${2:-}"
             shift 2
+            ;;
+        --debug)
+            DEBUG=1
+            shift
             ;;
         --random)
             RANDOM_ORDER=1
@@ -289,18 +364,18 @@ PROCESSED_DIR="${IMAGE_DIR}/processed"
 mkdir -p "$PROCESSED_DIR"
 
 echo "==> GET ${BASE_URL}/deviceInfo"
-perform_request \
+perform_request_with_retry "deviceInfo request" \
     -H 'Accept: application/json' \
     "${BASE_URL}/deviceInfo"
 echo "HTTP ${LAST_STATUS}"
 printf '%s\n' "$LAST_BODY"
-[[ "$LAST_STATUS" == "200" ]] || die "deviceInfo request failed"
+[[ "$LAST_CURL_EXIT" -eq 0 && "$LAST_STATUS" == "200" ]] || die "deviceInfo request failed (curl=${LAST_CURL_EXIT}, http=${LAST_STATUS})"
 
 derive_canvas_dimensions
 
 echo
 echo "==> DELETE ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
-perform_request \
+perform_request_with_retry "gallery delete" \
     -H 'Accept: application/json' \
     -X DELETE \
     "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
@@ -313,13 +388,13 @@ fi
 
 echo
 echo "==> PUT ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
-perform_request \
+perform_request_with_retry "gallery create" \
     -H 'Accept: application/json' \
     -X PUT \
     "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
 echo "HTTP ${LAST_STATUS}"
 printf '%s\n' "$LAST_BODY"
-[[ "$LAST_STATUS" == "200" ]] || die "gallery creation failed"
+[[ "$LAST_CURL_EXIT" -eq 0 && "$LAST_STATUS" == "200" ]] || die "gallery creation failed (curl=${LAST_CURL_EXIT}, http=${LAST_STATUS})"
 
 image_index=0
 for image_path in "${IMAGE_FILES[@]}"; do
@@ -332,23 +407,56 @@ for image_path in "${IMAGE_FILES[@]}"; do
     echo
     echo "==> Uploading processed file:"
     ls -la "$prepared_image"
-    echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
-    perform_request \
+    echo "==> POST ${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY}"
+    perform_request_with_retry "image delete ${remote_filename}" \
         -H 'Accept: application/json' \
         -X POST \
-        -F "image=@${prepared_image};type=image/jpeg" \
-        "${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
+        "${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY}"
     echo "HTTP ${LAST_STATUS}"
-    printf '%s\n' "$LAST_BODY"
-    [[ "$LAST_STATUS" == "200" ]] || die "upload request failed for: $image_path"
-    grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY" || die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS} for: $image_path"
+    if [[ "$LAST_CURL_EXIT" -eq 0 && "$LAST_STATUS" == "200" ]]; then
+        printf '%s\n' "$LAST_BODY"
+    else
+        echo "(Image did not already exist on device or delete was not accepted; continuing.)"
+    fi
+
+    echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
+    upload_attempt=1
+    max_upload_attempts=$(( RETRY_COUNT + 1 ))
+    while true; do
+        perform_request \
+            -H 'Accept: application/json' \
+            -X POST \
+            -F "image=@${prepared_image};type=image/jpeg" \
+            "${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}&show_now=0"
+        echo "HTTP ${LAST_STATUS}"
+        printf '%s\n' "$LAST_BODY"
+
+        if [[ "$LAST_CURL_EXIT" -eq 0 && "$LAST_STATUS" == "200" ]] && upload_response_succeeded; then
+            break
+        fi
+
+        if [[ "$upload_attempt" -ge "$max_upload_attempts" ]]; then
+            if [[ "$LAST_CURL_EXIT" -ne 0 || "$LAST_STATUS" != "200" ]]; then
+                die "upload request failed for: $image_path (curl=${LAST_CURL_EXIT}, http=${LAST_STATUS})"
+            fi
+            die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS} for: $image_path (body: ${LAST_BODY})"
+        fi
+
+        echo "Warning: upload attempt ${upload_attempt}/${max_upload_attempts} failed for ${remote_filename}; deleting stale device file and retrying in ${RETRY_DELAY}s..." >&2
+        upload_attempt=$(( upload_attempt + 1 ))
+        perform_request \
+            -H 'Accept: application/json' \
+            -X POST \
+            "${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY}"
+        sleep "$RETRY_DELAY"
+    done
 done
 
 SHOW_BODY="{\"play_type\":1,\"gallery\":\"${SAFE_GALLERY}\",\"duration\":${DURATION}}"
 
 echo
 echo "==> POST ${BASE_URL}/show"
-perform_request \
+perform_request_with_retry "show request" \
     -H 'Accept: application/json' \
     -H 'Content-Type: application/json' \
     -X POST \
@@ -356,7 +464,7 @@ perform_request \
     "${BASE_URL}/show"
 echo "HTTP ${LAST_STATUS}"
 printf '%s\n' "$LAST_BODY"
-[[ "$LAST_STATUS" == "200" ]] || die "show request failed"
+[[ "$LAST_CURL_EXIT" -eq 0 && "$LAST_STATUS" == "200" ]] || die "show request failed (curl=${LAST_CURL_EXIT}, http=${LAST_STATUS})"
 
 echo
 echo "Slideshow upload succeeded for gallery: ${SAFE_GALLERY}"

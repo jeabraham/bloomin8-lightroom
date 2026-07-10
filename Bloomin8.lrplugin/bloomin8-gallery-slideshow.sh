@@ -69,7 +69,7 @@ sanitize_component() {
     local input="$1"
     local sanitized
 
-    sanitized="$(printf '%s' "$input" | tr ' /' '__' | tr -cd '[:alnum:]._-')"
+    sanitized="$(printf '%s' "$input" | tr ' /' '__' | tr -cd '[:alnum:]._-' | tr -s '_')"
     [[ -n "$sanitized" ]] || die "Unable to derive a safe value from: $input"
 
     printf '%s' "$sanitized"

@@ -39,6 +39,8 @@ local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
 local SLIDESHOW_WRAPPER_NAME = 'bloomin8-run-slideshow.sh'
 local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check the Bloomin8 plugin log: macOS ~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bloomin8.log ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
 local LIGHTROOM_LOG_HINT_MULTILINE = 'Bloomin8 plugin log:\n  macOS: ~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bloomin8.log\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
+-- Sentinel token appended to popen output so the shell exit code can be parsed.
+local EXIT_SENTINEL = 'BLOOMIN8_EXIT'
 
 PublishServiceProvider.supportsIncrementalPublish = 'only'
 
@@ -540,20 +542,25 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         -- Redirect stderr to stdout (2>&1) so that error messages from die() are
         -- captured alongside normal output instead of being silently discarded.
         -- Append exit-code sentinel so we can detect failures.
-        local handle = io.popen('{ ' .. cmd .. '; } 2>&1; printf "\\nBLOOMIN8_EXIT:%d" $?', 'r')
+        local handle = io.popen('{ ' .. cmd .. '; } 2>&1; printf "\\n' .. EXIT_SENTINEL .. ':%d" $?', 'r')
         local output = handle and handle:read('*all') or ''
         if handle then handle:close() end
 
-        local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
+        local exitCode = tonumber(output:match(EXIT_SENTINEL .. ':(%d+)'))
         -- Strip the sentinel line from the output before logging/displaying it.
         -- printf always prefixes the sentinel with \n so a single pattern suffices.
-        local scriptOutput = output:gsub('\nBLOOMIN8_EXIT:%d+%s*$', '')
+        local scriptOutput = output:gsub('\n' .. EXIT_SENTINEL .. ':%d+%s*$', '')
         -- LrLogger silently drops multi-line messages, so split and log each line
-        -- individually.  Always log full output (success or failure) at info level
-        -- so the response bodies are visible; mark failure lines at error level.
+        -- individually.  Always log full output (success or failure) so the HTTP
+        -- response bodies are visible in bloomin8.log for diagnostics.
+        -- Use (scriptOutput..'\n'):gmatch to preserve empty lines in the output.
         local scriptLines = {}
-        for line in scriptOutput:gmatch('[^\n]+') do
+        for line in (scriptOutput .. '\n'):gmatch('([^\n]*)\n') do
             scriptLines[#scriptLines + 1] = line
+        end
+        -- Remove a trailing empty entry added by the forced \n if output ends with \n.
+        if #scriptLines > 0 and scriptLines[#scriptLines] == '' then
+            scriptLines[#scriptLines] = nil
         end
         do
             local level = (exitCode == nil or exitCode ~= 0) and 'error' or 'info'

@@ -230,10 +230,6 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
     until LrFileUtils.exists(backupPath) ~= 'file'
 
     local function cleanupTemp()
-        if LrFileUtils.exists(tempPath) ~= 'file' then
-            return false, string.format('Cannot clean up temporary file because it does not exist at %s', tempPath)
-        end
-
         local removedTemp = LrFileUtils.delete(tempPath)
         if not removedTemp then
             return false, string.format('Failed to clean up temporary file at %s', tempPath)
@@ -264,19 +260,16 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
         if os.rename(tempPath, destinationPath) then
             local removedBackup = LrFileUtils.delete(backupPath)
             if not removedBackup then
-                return false, string.format('Replaced %s but failed removing backup file %s', destinationPath, backupPath)
+                return true
             end
             return true
         end
 
         local restored = os.rename(backupPath, destinationPath)
-        local cleaned, cleanupErr = cleanupTemp()
         if not restored then
-            if not cleaned then
-                return false, string.format('Failed to replace %s with %s, failed to restore backup from %s: %s', destinationPath, sourcePath, backupPath, cleanupErr)
-            end
             return false, string.format('Failed to replace %s with %s and failed to restore backup from %s', destinationPath, sourcePath, backupPath)
         end
+        local cleaned, cleanupErr = cleanupTemp()
         if not cleaned then
             return false, string.format('Failed to replace %s with %s; backup restored but cleanup failed: %s', destinationPath, sourcePath, cleanupErr)
         end
@@ -288,7 +281,7 @@ local function copyFileReplacingExisting(sourcePath, destinationPath)
         return false, string.format('Failed to replace %s with %s; %s', destinationPath, sourcePath, cleanupErr)
     end
 
-    return false, string.format('Failed to replace %s with %s', destinationPath, sourcePath)
+    return false, string.format('Failed to replace %s with %s even though %s does not exist', destinationPath, sourcePath, destinationPath)
 end
 
 local function copySlideshowHelper(destinationDirectory)

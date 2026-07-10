@@ -281,8 +281,8 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
 
     -- Resolve per-collection settings
     local publishedCollection = exportContext.publishedCollection
-    local collectionName = publishedCollection and publishedCollection:getName() or ''
-    local collectionInfo = publishedCollection and publishedCollection:getCollectionInfoSummary()
+    local collectionName = (publishedCollection and publishedCollection:getName()) or ''
+    local collectionInfo = (publishedCollection and publishedCollection:getCollectionInfoSummary())
     local collectionSettings = (collectionInfo and collectionInfo.collectionSettings) or {}
 
     -- Gallery name: use collection setting if set, otherwise fall back to collection name

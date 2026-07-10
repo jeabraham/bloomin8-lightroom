@@ -8,9 +8,24 @@ local LrView = import 'LrView'
 local bind = LrView.bind
 
 local logger = LrLogger('bloomin8')
-pcall(function()
-    logger:enable('logfile')
-end)
+do
+    local enabledLogfile, enableErr = pcall(function()
+        logger:enable('logfile')
+    end)
+
+    if not enabledLogfile then
+        local enabledPrint = pcall(function()
+            logger:enable('print')
+        end)
+
+        if enabledPrint then
+            logger:warn(string.format(
+                '[logging] Falling back to print logging because logfile logging could not be enabled: %s',
+                tostring(enableErr)
+            ))
+        end
+    end
+end
 
 local PublishServiceProvider = {}
 local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'

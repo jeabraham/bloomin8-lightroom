@@ -356,10 +356,12 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         LrErrors.throwUserError(err)
     end
 
-    local nRenditions = 0
-    local nSucceeded  = 0
-    local nFailed     = 0
-    local failedNames = {}
+    local nRenditions    = 0
+    local nFailed        = 0
+    local failedNames    = {}
+    -- Locally-copied renditions whose publish state is committed only after a
+    -- successful device upload (or immediately when no device host is configured).
+    local localSucceeded = {}
 
     for _, rendition in exportSession:renditions { stopIfCanceled = true } do
         nRenditions = nRenditions + 1
@@ -423,12 +425,16 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             local copied = LrFileUtils.copy(pathOrMessage, destinationPath)
 
             if copied then
-                -- Store the destination path as the published photo ID so that
-                -- deletePublishedPhotos can locate and remove the file later.
-                rendition:recordPublishedPhotoId(destinationPath)
-                nSucceeded = nSucceeded + 1
+                -- Defer recordPublishedPhotoId until after the device upload so that
+                -- a failed device upload leaves these photos in the publish queue.
+                localSucceeded[#localSucceeded + 1] = {
+                    rendition       = rendition,
+                    destinationPath = destinationPath,
+                    photoName       = photoName,
+                }
                 logger:info(string.format(
-                    '[publishState] recordPublishedPhotoId(%q) for %q', destinationPath, photoName
+                    '[publishState] local copy succeeded for %q -> %q (publish state deferred)',
+                    photoName, destinationPath
                 ))
             else
                 nFailed = nFailed + 1
@@ -441,6 +447,8 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             end
         end
     end
+
+    local nSucceeded = #localSucceeded
 
     logger:info(string.format(
         '[publishState] publish loop complete: renditions=%d succeeded=%d failed=%d',
@@ -489,12 +497,44 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
 
         local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
         if exitCode == nil or exitCode ~= 0 then
+            -- Device upload failed: mark locally-copied photos as upload-failed so
+            -- they re-appear in "New/Modified Photos to Publish" on the next run.
+            for _, item in ipairs(localSucceeded) do
+                local failMsg = string.format(
+                    'Device upload failed (exit code %s); photo will be re-queued for publish',
+                    tostring(exitCode)
+                )
+                item.rendition:uploadFailed(failMsg)
+                logger:warn(string.format(
+                    '[publishState] uploadFailed (device error) for %q: %s',
+                    item.photoName, failMsg
+                ))
+            end
             local msg = string.format(
-                'Slideshow upload finished with errors (exit code %s).\nCheck the Lightroom log for details.\n%s',
+                'Slideshow upload finished with errors (exit code %s).\n%d photo(s) have been re-queued and will appear in "New/Modified Photos to Publish".\nCheck the Lightroom log for details.\n%s',
                 tostring(exitCode),
+                nSucceeded,
                 LIGHTROOM_LOG_HINT_MULTILINE
             )
             LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
+        else
+            -- Device upload succeeded: now commit the publish state for all photos.
+            for _, item in ipairs(localSucceeded) do
+                item.rendition:recordPublishedPhotoId(item.destinationPath)
+                logger:info(string.format(
+                    '[publishState] recordPublishedPhotoId(%q) for %q',
+                    item.destinationPath, item.photoName
+                ))
+            end
+        end
+    else
+        -- No device host configured: commit publish state immediately after local copy.
+        for _, item in ipairs(localSucceeded) do
+            item.rendition:recordPublishedPhotoId(item.destinationPath)
+            logger:info(string.format(
+                '[publishState] recordPublishedPhotoId(%q) for %q',
+                item.destinationPath, item.photoName
+            ))
         end
     end
 end

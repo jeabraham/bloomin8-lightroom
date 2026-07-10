@@ -379,6 +379,13 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
     end
 end
 
+-- Percent-encodes a string for use as a URI query-parameter value.
+local function urlEncode(s)
+    return (s:gsub('([^%w%-%.%_%~])', function(c)
+        return string.format('%%%02X', string.byte(c))
+    end))
+end
+
 -- Called by Lightroom when photos are removed from the published collection.
 -- photoId is the local destination path stored by rendition:uploadSucceeded.
 function PublishServiceProvider.deletePublishedPhotos(functionContext, publishSettings, arrayOfPhotoIds)
@@ -395,17 +402,13 @@ function PublishServiceProvider.deletePublishedPhotos(functionContext, publishSe
         end
 
         -- Delete from device if a host is configured.
-        -- Use curl --data-urlencode so filenames with spaces or special chars are safe.
+        -- Filename and gallery name are percent-encoded so special characters are safe in the URL.
         if deviceHost ~= '' then
-            local filename  = LrPathUtils.leafName(photoId)
+            local filename = LrPathUtils.leafName(photoId)
             local galleryName = LrPathUtils.leafName(LrPathUtils.parent(photoId))
-            local baseUrl   = string.format('http://%s/image/delete', deviceHost)
-            local curlCmd   = string.format(
-                'curl -sf -X POST -G --data-urlencode %q --data-urlencode %q %q',
-                'image=' .. filename,
-                'gallery=' .. galleryName,
-                baseUrl
-            )
+            local url = string.format('http://%s/image/delete?image=%s&gallery=%s',
+                deviceHost, urlEncode(filename), urlEncode(galleryName))
+            local curlCmd = string.format('curl -sf -X POST %q', url)
             local handle = io.popen('{ ' .. curlCmd .. '; }; printf "\\nBLOOMIN8_EXIT:%d" $?', 'r')
             local output = handle and handle:read('*all') or ''
             if handle then handle:close() end

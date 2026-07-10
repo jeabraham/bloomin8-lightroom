@@ -351,19 +351,30 @@ else
     fi
 fi
 
+declare -A used_remote_names=()
 image_index=0
 for image_path in "${IMAGE_FILES[@]}"; do
     image_index=$((image_index + 1))
-    if [[ "${#NEW_FILES[@]}" -gt 0 ]]; then
-        # Incremental mode: use the plain basename so filenames on the device are
-        # consistent with what deletePublishedPhotos sends to POST /image/delete.
-        remote_filename="$(sanitize_component "$(basename "$image_path")")"
-        prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
+
+    # Derive the remote filename from the plain basename (no sequence prefix).
+    # On collision, append _2, _3, … before the extension.
+    base_remote="$(sanitize_component "$(basename "$image_path")")"
+    if [[ "$base_remote" == *.* ]]; then
+        stem="${base_remote%.*}"
+        ext=".${base_remote##*.}"
     else
-        remote_filename="$(printf '%04d_%s' "$image_index" "$(basename "$image_path")")"
-        remote_filename="$(sanitize_component "$remote_filename")"
-        prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
+        stem="$base_remote"
+        ext=""
     fi
+    remote_filename="$base_remote"
+    suffix=2
+    while [[ -v used_remote_names["$remote_filename"] ]]; do
+        remote_filename="${stem}_${suffix}${ext}"
+        suffix=$(( suffix + 1 ))
+    done
+    used_remote_names["$remote_filename"]=1
+
+    prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
     [[ -f "$prepared_image" ]] || die "Image preparation failed (ImageMagick error?) for: $image_path"
 
     if [[ "${#NEW_FILES[@]}" -gt 0 ]]; then

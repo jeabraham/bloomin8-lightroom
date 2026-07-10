@@ -364,7 +364,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
     for _, rendition in exportSession:renditions { stopIfCanceled = true } do
         nRenditions = nRenditions + 1
 
-        -- previousId is the path stored by the last successful uploadSucceeded call,
+        -- previousId is the path stored by the last successful recordPublishedPhotoId call,
         -- or nil when this photo has never been successfully published.
         local previousId = rendition.publishedPhotoId
         local photo = rendition.photo
@@ -425,10 +425,10 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             if copied then
                 -- Store the destination path as the published photo ID so that
                 -- deletePublishedPhotos can locate and remove the file later.
-                rendition:uploadSucceeded(destinationPath)
+                rendition:recordPublishedPhotoId(destinationPath)
                 nSucceeded = nSucceeded + 1
                 logger:info(string.format(
-                    '[publishState] uploadSucceeded(%q) for %q', destinationPath, photoName
+                    '[publishState] recordPublishedPhotoId(%q) for %q', destinationPath, photoName
                 ))
             else
                 nFailed = nFailed + 1
@@ -507,7 +507,7 @@ local function urlEncode(s)
 end
 
 -- Called by Lightroom when photos are removed from the published collection.
--- photoId is the local destination path stored by rendition:uploadSucceeded.
+-- photoId is the local destination path stored by rendition:recordPublishedPhotoId.
 function PublishServiceProvider.deletePublishedPhotos(functionContext, publishSettings, arrayOfPhotoIds)
     local deviceHost = publishSettings.bloomin8DeviceHost or ''
     local errors = {}

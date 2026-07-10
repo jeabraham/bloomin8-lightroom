@@ -253,13 +253,13 @@ Search for `[publishState]` to find the relevant lines.  Key entries to look for
 | `rendition #N: photo=… previousId=nil (never published)` | Lightroom has no stored published ID for this photo — it has never been successfully published in this service. |
 | `rendition #N: photo=… previousId="/path/…"` | A previously stored published ID exists; compare it to `destinationPath` in the next line. |
 | `previousId match: NO (was "…")` | The stored path doesn't match the current destination — the gallery name or base directory changed between publishes; this causes Lightroom to treat the photo as new. |
-| `uploadSucceeded("/path/…")` | Lightroom's publish state was updated for this photo; it will move to "Published". |
+| `recordPublishedPhotoId("/path/…")` | Lightroom's publish state was updated for this photo; it will move to "Published". |
 | `uploadFailed for "…"` | The file copy failed; this photo will remain in "New Photos to Publish". |
 | `publish loop complete: renditions=N succeeded=N failed=0` | All N photos in this session were committed.  If N is smaller than expected, some photos were already "Published" and not included in this run (correct incremental behavior). |
 
 **Common causes of "all photos appear as New Photos to Publish":**
 
-1. **`previousId=nil` for all photos** — `uploadSucceeded` was never committed (e.g., the plugin threw an exception during a previous publish before reaching the copy step, or was installed fresh).
+1. **`previousId=nil` for all photos** — `recordPublishedPhotoId` was never committed (e.g., the plugin threw an exception during a previous publish before reaching the copy step, or was installed fresh).
 2. **`previousId match: NO`** — the gallery name or base directory was changed after the initial publish, so the stored path no longer matches the current destination path.  The fix is to publish once to re-register the correct paths.
 3. **`uploadFailed` for every photo** — the local file copy is failing (disk full, permissions, path too long).  Check the error message alongside the `uploadFailed` line.
 

@@ -215,13 +215,25 @@ local function copySlideshowHelper(destinationDirectory)
         return false, string.format('Missing slideshow helper script in plugin bundle: %s', helperSourcePath)
     end
 
-    if LrFileUtils.exists(helperDestinationPath) == 'file' then
-        LrFileUtils.delete(helperDestinationPath)
+    local copied, err = copyFileReplacingExisting(helperSourcePath, helperDestinationPath)
+    if not copied then
+        return false, string.format('Failed copying slideshow helper from %s to %s: %s', helperSourcePath, helperDestinationPath, err)
     end
 
-    local copied = LrFileUtils.copy(helperSourcePath, helperDestinationPath)
+    return true
+end
+
+local function copyFileReplacingExisting(sourcePath, destinationPath)
+    if LrFileUtils.exists(destinationPath) == 'file' then
+        local deleted = LrFileUtils.delete(destinationPath)
+        if not deleted then
+            return false, string.format('Failed removing existing file at %s', destinationPath)
+        end
+    end
+
+    local copied = LrFileUtils.copy(sourcePath, destinationPath)
     if not copied then
-        return false, string.format('Failed copying slideshow helper from %s to %s', helperSourcePath, helperDestinationPath)
+        return false, 'copy failed'
     end
 
     return true
@@ -322,7 +334,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         else
             local outputFilename = LrPathUtils.leafName(pathOrMessage)
             local destinationPath = LrPathUtils.child(destinationDirectory, outputFilename)
-            local copied = LrFileUtils.copy(pathOrMessage, destinationPath)
+            local copied, copyErr = copyFileReplacingExisting(pathOrMessage, destinationPath)
 
             if copied then
                 if rendition.uploadSucceeded then
@@ -330,7 +342,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
                 end
             else
                 if rendition.uploadFailed then
-                    rendition:uploadFailed(string.format('Failed copying %s to %s', pathOrMessage, destinationPath))
+                    rendition:uploadFailed(string.format('Failed copying %s to %s: %s', pathOrMessage, destinationPath, copyErr))
                 end
             end
         end

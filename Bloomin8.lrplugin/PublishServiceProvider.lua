@@ -37,8 +37,8 @@ end
 local PublishServiceProvider = {}
 local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
 local SLIDESHOW_WRAPPER_NAME = 'bloomin8-run-slideshow.sh'
-local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check Lightroom logs: macOS ~/Library/Application Support/Adobe/Lightroom/lrc_console.log ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\'
-local LIGHTROOM_LOG_HINT_MULTILINE = 'Lightroom logs:\n  macOS: ~/Library/Application Support/Adobe/Lightroom/lrc_console.log\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\'
+local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check the Bloomin8 plugin log: macOS ~/Library/Application Support/Adobe/Lightroom/bloomin8.log ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
+local LIGHTROOM_LOG_HINT_MULTILINE = 'Bloomin8 plugin log:\n  macOS: ~/Library/Application Support/Adobe/Lightroom/bloomin8.log\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
 
 PublishServiceProvider.supportsIncrementalPublish = 'only'
 
@@ -537,13 +537,22 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         end
 
         -- os.execute is unavailable in Lightroom's Lua sandbox; use io.popen
+        -- Redirect stderr to stdout (2>&1) so that error messages from die() are
+        -- captured alongside normal output instead of being silently discarded.
         -- Append exit-code sentinel so we can detect failures.
-        local handle = io.popen('{ ' .. cmd .. '; }; printf "\\nBLOOMIN8_EXIT:%d" $?', 'r')
+        local handle = io.popen('{ ' .. cmd .. '; } 2>&1; printf "\\nBLOOMIN8_EXIT:%d" $?', 'r')
         local output = handle and handle:read('*all') or ''
         if handle then handle:close() end
 
         local exitCode = tonumber(output:match('BLOOMIN8_EXIT:(%d+)'))
+        -- Strip the sentinel line from the output before logging/displaying it.
+        local scriptOutput = output:gsub('\nBLOOMIN8_EXIT:%d+%s*$', ''):gsub('BLOOMIN8_EXIT:%d+%s*$', '')
         if exitCode == nil or exitCode ~= 0 then
+            -- Log the full script output so the reason appears in bloomin8.log.
+            logger:error(string.format(
+                '[publishState] slideshow script failed (exit %s). Script output:\n%s',
+                tostring(exitCode), scriptOutput
+            ))
             -- Device upload failed: mark locally-copied photos as upload-failed so
             -- they re-appear in "New/Modified Photos to Publish" on the next run.
             for _, item in ipairs(localSucceeded) do
@@ -557,12 +566,35 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
                     item.photoName, failMsg
                 ))
             end
-            local msg = string.format(
-                'Slideshow upload finished with errors (exit code %s).\n%d photo(s) have been re-queued and will appear in "New/Modified Photos to Publish".\nCheck the Lightroom log for details.\n%s',
-                tostring(exitCode),
-                nSucceeded,
-                LIGHTROOM_LOG_HINT_MULTILINE
-            )
+            -- Include the last few lines of script output in the dialog so the user
+            -- sees the actual failure reason without needing to find the log file.
+            local outputLines = {}
+            for line in (scriptOutput .. '\n'):gmatch('([^\n]*)\n') do
+                outputLines[#outputLines + 1] = line
+            end
+            local tailStart = math.max(1, #outputLines - 9)
+            local tailLines = {}
+            for i = tailStart, #outputLines do
+                tailLines[#tailLines + 1] = outputLines[i]
+            end
+            local outputSnippet = table.concat(tailLines, '\n'):match('^%s*(.-)%s*$') or ''
+            local msg
+            if outputSnippet ~= '' then
+                msg = string.format(
+                    'Slideshow upload finished with errors (exit code %s).\n%d photo(s) have been re-queued and will appear in "New/Modified Photos to Publish".\n\nScript output:\n%s\n\n%s',
+                    tostring(exitCode),
+                    nSucceeded,
+                    outputSnippet,
+                    LIGHTROOM_LOG_HINT_MULTILINE
+                )
+            else
+                msg = string.format(
+                    'Slideshow upload finished with errors (exit code %s).\n%d photo(s) have been re-queued and will appear in "New/Modified Photos to Publish".\n%s',
+                    tostring(exitCode),
+                    nSucceeded,
+                    LIGHTROOM_LOG_HINT_MULTILINE
+                )
+            end
             LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
         else
             -- Device upload succeeded: now commit the publish state for all photos.

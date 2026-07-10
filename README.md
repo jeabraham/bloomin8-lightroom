@@ -230,12 +230,16 @@ export subdirectory.  It is a single-command wrapper that calls
 duration, playback order, orientation), and forwards any extra CLI arguments you
 append.
 
-## Lightroom logs (for troubleshooting)
+## Bloomin8 plugin log (for troubleshooting)
 
-If slideshow upload fails, check the Lightroom log:
+If slideshow upload fails, the plugin writes diagnostic output (including the
+full shell script output) to its own log file:
 
-- macOS: `~/Library/Application Support/Adobe/Lightroom/lrc_console.log`
-- Windows: `%AppData%\Adobe\Lightroom\Logs\`
+- macOS: `~/Library/Application Support/Adobe/Lightroom/bloomin8.log`
+- Windows: `%AppData%\Adobe\Lightroom\Logs\bloomin8.log`
+
+The failure dialog also shows the last several lines of the script's output
+directly, so you can usually see the reason without opening the log file.
 
 ---
 

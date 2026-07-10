@@ -548,12 +548,25 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         -- Strip the sentinel line from the output before logging/displaying it.
         -- printf always prefixes the sentinel with \n so a single pattern suffices.
         local scriptOutput = output:gsub('\nBLOOMIN8_EXIT:%d+%s*$', '')
-        if exitCode == nil or exitCode ~= 0 then
-            -- Log the full script output so the reason appears in bloomin8.log.
-            logger:error(string.format(
-                '[publishState] slideshow script failed (exit %s). Script output:\n%s',
-                tostring(exitCode), scriptOutput
+        -- LrLogger silently drops multi-line messages, so split and log each line
+        -- individually.  Always log full output (success or failure) at info level
+        -- so the response bodies are visible; mark failure lines at error level.
+        local scriptLines = {}
+        for line in scriptOutput:gmatch('[^\n]+') do
+            scriptLines[#scriptLines + 1] = line
+        end
+        do
+            local level = (exitCode == nil or exitCode ~= 0) and 'error' or 'info'
+            logger[level](logger, string.format(
+                '[scriptOutput] exit=%s lines=%d',
+                tostring(exitCode), #scriptLines
             ))
+            for i, line in ipairs(scriptLines) do
+                logger[level](logger, string.format('[scriptOutput:%d] %s', i, line))
+            end
+        end
+
+        if exitCode == nil or exitCode ~= 0 then
             -- Device upload failed: mark locally-copied photos as upload-failed so
             -- they re-appear in "New/Modified Photos to Publish" on the next run.
             for _, item in ipairs(localSucceeded) do
@@ -570,14 +583,10 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             -- Include the last few lines of script output in the dialog so the user
             -- sees the actual failure reason without needing to find the log file.
             local MAX_TAIL_LINES = 10
-            local outputLines = {}
-            for line in scriptOutput:gmatch('[^\n]+') do
-                outputLines[#outputLines + 1] = line
-            end
-            local tailStart = math.max(1, #outputLines - MAX_TAIL_LINES + 1)
+            local tailStart = math.max(1, #scriptLines - MAX_TAIL_LINES + 1)
             local tailLines = {}
-            for i = tailStart, #outputLines do
-                tailLines[#tailLines + 1] = outputLines[i]
+            for i = tailStart, #scriptLines do
+                tailLines[#tailLines + 1] = scriptLines[i]
             end
             local outputSnippet = table.concat(tailLines, '\n')
             local msg

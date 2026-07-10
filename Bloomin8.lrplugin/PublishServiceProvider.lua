@@ -16,24 +16,16 @@ PublishServiceProvider.supportsIncrementalPublish = 'only'
 
 PublishServiceProvider.small_icon = 'small_icon.png'
 
+-- Service-level settings: base directory and device host only.
+-- Gallery name, duration, playback order, and orientation are per-collection.
 PublishServiceProvider.exportPresetFields = {
-    { key = 'bloomin8LocalDirectory',   default = '' },
-    { key = 'bloomin8DeviceHost',       default = '' },
-    { key = 'bloomin8GalleryName',      default = '' },
-    { key = 'bloomin8Duration',         default = '120' },
-    { key = 'bloomin8RandomOrder',      default = false },
-    { key = 'bloomin8Orientation',      default = '' },
+    { key = 'bloomin8LocalDirectory', default = '' },
+    { key = 'bloomin8DeviceHost',     default = '' },
 }
 
 function PublishServiceProvider.startDialog(propertyTable)
     propertyTable.bloomin8LocalDirectory = propertyTable.bloomin8LocalDirectory or ''
     propertyTable.bloomin8DeviceHost     = propertyTable.bloomin8DeviceHost     or ''
-    propertyTable.bloomin8GalleryName    = propertyTable.bloomin8GalleryName    or ''
-    propertyTable.bloomin8Duration       = propertyTable.bloomin8Duration       or '120'
-    propertyTable.bloomin8Orientation    = propertyTable.bloomin8Orientation    or ''
-    if propertyTable.bloomin8RandomOrder == nil then
-        propertyTable.bloomin8RandomOrder = false
-    end
 
     propertyTable.LR_format = 'JPEG'
     propertyTable.LR_jpeg_quality = propertyTable.LR_jpeg_quality or 0.85
@@ -64,7 +56,7 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                 },
             },
             f:static_text {
-                title = 'Files are rendered as JPEG, fit within 1600×1200px (Width & Height).',
+                title = 'Files are rendered as JPEG, fit within 1600×1200px (Width & Height). Each collection is exported into a subdirectory named after its gallery.',
                 fill_horizontal = 1,
             },
         },
@@ -89,6 +81,39 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                 title = 'IP address or hostname of the Bloomin8 frame. Leave blank to skip upload.',
                 fill_horizontal = 1,
             },
+            f:static_text {
+                title = 'Gallery name, duration, playback order, and frame orientation are configured per-collection (right-click a collection → Edit Collection Settings).',
+                fill_horizontal = 1,
+            },
+            f:static_text {
+                title = LIGHTROOM_LOG_HINT_INLINE,
+                fill_horizontal = 1,
+            },
+        },
+    }
+end
+
+-- Per-collection settings: gallery name, duration, playback order, frame orientation.
+function PublishServiceProvider.viewForCollectionSettings(f, publishSettings, info)
+    local collectionSettings = assert(info.collectionSettings)
+
+    if collectionSettings.bloomin8GalleryName == nil then
+        collectionSettings.bloomin8GalleryName = ''
+    end
+    if collectionSettings.bloomin8Duration == nil then
+        collectionSettings.bloomin8Duration = '120'
+    end
+    if collectionSettings.bloomin8RandomOrder == nil then
+        collectionSettings.bloomin8RandomOrder = false
+    end
+    if collectionSettings.bloomin8Orientation == nil then
+        collectionSettings.bloomin8Orientation = ''
+    end
+
+    return f:view {
+        f:group_box {
+            title = 'Bloomin8 Collection Settings',
+            fill_horizontal = 1,
 
             f:row {
                 spacing = f:control_spacing(),
@@ -98,13 +123,13 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                     width = 160,
                 },
                 f:edit_field {
-                    value = bind 'bloomin8GalleryName',
+                    value = bind { key = 'bloomin8GalleryName', object = collectionSettings },
                     immediate = true,
                     width_in_chars = 30,
                 },
             },
             f:static_text {
-                title = 'Gallery name on the device. Defaults to the local publish directory name.',
+                title = 'Gallery name on the device and name of the export subdirectory. Leave blank to use the collection name.',
                 fill_horizontal = 1,
             },
 
@@ -116,7 +141,7 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                     width = 160,
                 },
                 f:edit_field {
-                    value = bind 'bloomin8Duration',
+                    value = bind { key = 'bloomin8Duration', object = collectionSettings },
                     immediate = true,
                     width_in_chars = 10,
                 },
@@ -134,7 +159,7 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                     width = 160,
                 },
                 f:popup_menu {
-                    value = bind 'bloomin8RandomOrder',
+                    value = bind { key = 'bloomin8RandomOrder', object = collectionSettings },
                     items = {
                         { title = 'Sequential', value = false },
                         { title = 'Random',     value = true  },
@@ -150,7 +175,7 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
                     width = 160,
                 },
                 f:popup_menu {
-                    value = bind 'bloomin8Orientation',
+                    value = bind { key = 'bloomin8Orientation', object = collectionSettings },
                     items = {
                         { title = 'Auto (from device)', value = ''          },
                         { title = 'Portrait',           value = 'portrait'  },
@@ -160,10 +185,6 @@ function PublishServiceProvider.sectionsForTopOfDialog(f, propertyTable)
             },
             f:static_text {
                 title = 'Set to match how your frame is hung. Auto reads orientation from the device.',
-                fill_horizontal = 1,
-            },
-            f:static_text {
-                title = LIGHTROOM_LOG_HINT_INLINE,
                 fill_horizontal = 1,
             },
         },
@@ -207,12 +228,12 @@ local function copySlideshowHelper(destinationDirectory)
     return true
 end
 
-local function buildSlideshowCommand(scriptPath, exportSettings, destinationDirectory)
-    local deviceHost = exportSettings.bloomin8DeviceHost or ''
-    local galleryName = exportSettings.bloomin8GalleryName or ''
-    local duration = exportSettings.bloomin8Duration or '120'
-    local randomOrder = exportSettings.bloomin8RandomOrder
-    local orientation = exportSettings.bloomin8Orientation or ''
+local function buildSlideshowCommand(scriptPath, effectiveSettings, destinationDirectory)
+    local deviceHost = effectiveSettings.bloomin8DeviceHost or ''
+    local galleryName = effectiveSettings.bloomin8GalleryName or ''
+    local duration = effectiveSettings.bloomin8Duration or '120'
+    local randomOrder = effectiveSettings.bloomin8RandomOrder
+    local orientation = effectiveSettings.bloomin8Orientation or ''
 
     local cmd = string.format(
         'bash %q --host %q --image-dir %q --duration %q',
@@ -234,10 +255,10 @@ local function buildSlideshowCommand(scriptPath, exportSettings, destinationDire
     return cmd
 end
 
-local function writeSlideshowWrapper(destinationDirectory, exportSettings)
+local function writeSlideshowWrapper(destinationDirectory, effectiveSettings)
     local helperPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
     local wrapperPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_WRAPPER_NAME)
-    local cmd = buildSlideshowCommand(helperPath, exportSettings, destinationDirectory)
+    local cmd = buildSlideshowCommand(helperPath, effectiveSettings, destinationDirectory)
     local file, openErr = io.open(wrapperPath, 'w')
     if not file then
         return false, nil, string.format('Failed creating slideshow wrapper %s: %s', wrapperPath, tostring(openErr))
@@ -257,7 +278,27 @@ end
 function PublishServiceProvider.processRenderedPhotos(functionContext, exportContext)
     local exportSession = exportContext.exportSession
     local exportSettings = assert(exportContext.propertyTable)
-    local destinationDirectory = exportSettings.bloomin8LocalDirectory
+    local baseDirectory = exportSettings.bloomin8LocalDirectory
+
+    -- Resolve per-collection settings
+    local publishedCollection = exportContext.publishedCollection
+    local collectionName = publishedCollection and publishedCollection:getName() or ''
+    local collectionInfo = publishedCollection and publishedCollection:getCollectionInfoSummary()
+    local collectionSettings = (collectionInfo and collectionInfo.collectionSettings) or {}
+
+    -- Gallery name: use collection setting if set, otherwise fall back to collection name
+    local galleryName = (collectionSettings.bloomin8GalleryName ~= nil and collectionSettings.bloomin8GalleryName ~= '')
+        and collectionSettings.bloomin8GalleryName
+        or collectionName
+
+    if galleryName == '' then
+        local err = 'Cannot determine gallery name: collection name is empty and no gallery name is configured in the collection settings.'
+        LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
+        LrErrors.throwUserError(err)
+    end
+
+    -- Each collection exports to a subdirectory named after the gallery
+    local destinationDirectory = LrPathUtils.child(baseDirectory, galleryName)
 
     local ok, err = ensureDirectory(destinationDirectory)
     if not ok then
@@ -297,7 +338,16 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
 
     local deviceHost = exportSettings.bloomin8DeviceHost or ''
     if deviceHost ~= '' then
-        local ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, exportSettings)
+        -- Merge service-level and collection-level settings for the wrapper script
+        local effectiveSettings = {
+            bloomin8DeviceHost  = deviceHost,
+            bloomin8GalleryName = galleryName,
+            bloomin8Duration    = collectionSettings.bloomin8Duration    or '120',
+            bloomin8RandomOrder = collectionSettings.bloomin8RandomOrder,
+            bloomin8Orientation = collectionSettings.bloomin8Orientation or '',
+        }
+
+        local ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, effectiveSettings)
         if not ok then
             LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
             LrErrors.throwUserError(err)

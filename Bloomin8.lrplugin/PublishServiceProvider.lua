@@ -307,6 +307,30 @@ local function buildSlideshowCommand(scriptPath, effectiveSettings, destinationD
     return cmd
 end
 
+-- Builds a shell command for an incremental publish: only the files in filePaths
+-- are processed and uploaded; the gallery on the device is not wiped.
+local function buildIncrementalCommand(scriptPath, effectiveSettings, destinationDirectory, filePaths)
+    local deviceHost = effectiveSettings.bloomin8DeviceHost or ''
+    local galleryName = effectiveSettings.bloomin8GalleryName or ''
+    local duration = effectiveSettings.bloomin8Duration or '120'
+    local orientation = effectiveSettings.bloomin8Orientation or ''
+
+    local cmd = string.format(
+        'bash %q --host %q --image-dir %q --gallery %q --duration %q',
+        scriptPath, deviceHost, destinationDirectory, galleryName, duration
+    )
+
+    if orientation ~= '' then
+        cmd = cmd .. string.format(' --frame-orientation %q', orientation)
+    end
+
+    for _, filePath in ipairs(filePaths) do
+        cmd = cmd .. string.format(' --file %q', filePath)
+    end
+
+    return cmd
+end
+
 local function writeSlideshowWrapper(destinationDirectory, effectiveSettings)
     local helperPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
     local wrapperPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_WRAPPER_NAME)
@@ -485,14 +509,32 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             bloomin8Orientation = collectionSettings.bloomin8Orientation or 'portrait',
         }
 
+        -- Always write the wrapper script so it can be re-run manually from Terminal
+        -- for a full gallery sync (it uses --image-dir, not --file).
         local ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, effectiveSettings)
         if not ok then
             LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
             LrErrors.throwUserError(err)
         end
 
-        -- Wrapper is primarily for manual re-runs from Terminal with persisted settings.
-        local cmd = string.format('bash %q', wrapperPath)
+        local cmd
+        if #localSucceeded == 0 then
+            -- Nothing was successfully rendered/copied; skip the device upload entirely.
+            logger:info('[publishState] no files succeeded; skipping device upload')
+            return
+        else
+            -- Incremental publish: only process and upload the newly rendered files.
+            -- The gallery on the device is NOT wiped – existing photos are preserved.
+            local helperPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
+            local newFilePaths = {}
+            for _, item in ipairs(localSucceeded) do
+                newFilePaths[#newFilePaths + 1] = item.destinationPath
+            end
+            cmd = buildIncrementalCommand(helperPath, effectiveSettings, destinationDirectory, newFilePaths)
+            logger:info(string.format(
+                '[publishState] incremental upload command: %s', cmd
+            ))
+        end
 
         -- os.execute is unavailable in Lightroom's Lua sandbox; use io.popen
         -- Append exit-code sentinel so we can detect failures.

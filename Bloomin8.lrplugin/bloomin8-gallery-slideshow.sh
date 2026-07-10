@@ -23,6 +23,10 @@ Options:
   --random                           Shuffle images into a random upload order
   --connect-timeout N                Curl connect timeout in seconds (default: 5)
   --max-time N                       Curl total timeout in seconds (default: 60)
+  --file PATH                        Add a specific file to upload (repeatable). When one or more
+                                     --file options are given the script runs in incremental mode:
+                                     the gallery is not deleted/recreated and only the specified
+                                     files are processed and uploaded.
   --help                             Show this message
 
 Environment:
@@ -181,6 +185,7 @@ PAD_COLOR="black"
 CONNECT_TIMEOUT=5
 MAX_TIME=60
 RANDOM_ORDER=0
+NEW_FILES=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -224,6 +229,10 @@ while [[ $# -gt 0 ]]; do
             RANDOM_ORDER=1
             shift
             ;;
+        --file)
+            NEW_FILES+=("${2:-}")
+            shift 2
+            ;;
         --help|-h)
             usage
             exit 0
@@ -266,10 +275,16 @@ else
 fi
 
 IMAGE_DIR="$(cd "$IMAGE_DIR" && pwd)"
-collect_images
 
-if [[ "$RANDOM_ORDER" -eq 1 ]]; then
-    shuffle_images
+if [[ "${#NEW_FILES[@]}" -gt 0 ]]; then
+    # Incremental mode: only the explicitly specified files are processed and uploaded.
+    IMAGE_FILES=("${NEW_FILES[@]}")
+else
+    collect_images
+
+    if [[ "$RANDOM_ORDER" -eq 1 ]]; then
+        shuffle_images
+    fi
 fi
 
 if [[ -z "$GALLERY" ]]; then
@@ -299,35 +314,64 @@ printf '%s\n' "$LAST_BODY"
 derive_canvas_dimensions
 
 echo
-echo "==> DELETE ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
-perform_request \
-    -H 'Accept: application/json' \
-    -X DELETE \
-    "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
-echo "HTTP ${LAST_STATUS}"
-if [[ "$LAST_STATUS" == "200" ]]; then
-    printf '%s\n' "$LAST_BODY"
-else
-    echo "(Gallery did not already exist or delete was not accepted; continuing.)"
-fi
+if [[ "${#NEW_FILES[@]}" -eq 0 ]]; then
+    echo "==> DELETE ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+    perform_request \
+        -H 'Accept: application/json' \
+        -X DELETE \
+        "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+    echo "HTTP ${LAST_STATUS}"
+    if [[ "$LAST_STATUS" == "200" ]]; then
+        printf '%s\n' "$LAST_BODY"
+    else
+        echo "(Gallery did not already exist or delete was not accepted; continuing.)"
+    fi
 
-echo
-echo "==> PUT ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
-perform_request \
-    -H 'Accept: application/json' \
-    -X PUT \
-    "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
-echo "HTTP ${LAST_STATUS}"
-printf '%s\n' "$LAST_BODY"
-[[ "$LAST_STATUS" == "200" ]] || die "gallery creation failed"
+    echo
+    echo "==> PUT ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+    perform_request \
+        -H 'Accept: application/json' \
+        -X PUT \
+        "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+    echo "HTTP ${LAST_STATUS}"
+    printf '%s\n' "$LAST_BODY"
+    [[ "$LAST_STATUS" == "200" ]] || die "gallery creation failed"
+else
+    # Incremental mode: ensure the gallery exists; ignore failure if it already exists.
+    echo "==> PUT ${BASE_URL}/gallery?name=${SAFE_GALLERY} (ensure exists)"
+    perform_request \
+        -H 'Accept: application/json' \
+        -X PUT \
+        "${BASE_URL}/gallery?name=${SAFE_GALLERY}" || true
+    echo "HTTP ${LAST_STATUS:-skipped}"
+fi
 
 image_index=0
 for image_path in "${IMAGE_FILES[@]}"; do
     image_index=$((image_index + 1))
-    remote_filename="$(printf '%04d_%s' "$image_index" "$(basename "$image_path")")"
-    remote_filename="$(sanitize_component "$remote_filename")"
-    prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
+    if [[ "${#NEW_FILES[@]}" -gt 0 ]]; then
+        # Incremental mode: use the plain basename so filenames on the device are
+        # consistent with what deletePublishedPhotos sends to POST /image/delete.
+        remote_filename="$(sanitize_component "$(basename "$image_path")")"
+        prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
+    else
+        remote_filename="$(printf '%04d_%s' "$image_index" "$(basename "$image_path")")"
+        remote_filename="$(sanitize_component "$remote_filename")"
+        prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
+    fi
     [[ -f "$prepared_image" ]] || die "Image preparation failed (ImageMagick error?) for: $image_path"
+
+    if [[ "${#NEW_FILES[@]}" -gt 0 ]]; then
+        # Incremental: delete any existing copy from the device first (ignore failure –
+        # the file may not exist yet for a brand-new photo).
+        echo
+        echo "==> POST ${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY} (pre-delete)"
+        perform_request \
+            -H 'Accept: application/json' \
+            -X POST \
+            "${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY}" || true
+        echo "HTTP ${LAST_STATUS:-skipped}"
+    fi
 
     echo
     echo "==> Uploading processed file:"

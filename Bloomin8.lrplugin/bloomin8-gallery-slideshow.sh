@@ -40,7 +40,7 @@ die() {
 }
 
 debug_log() {
-    if [[ "${DEBUG:-0}" -eq 1 ]]; then
+    if [[ "$DEBUG" -eq 1 ]]; then
         echo "[debug] $*" >&2
     fi
 }
@@ -95,8 +95,8 @@ perform_request() {
 
     if [[ "$DEBUG" -eq 1 ]]; then
         curl_args+=(--verbose)
-        debug_log "curl $(printf '%q ' "${curl_args[@]}" "$@")"
     fi
+    debug_log "curl $(printf '%q ' "${curl_args[@]}" "$@")"
 
     if ! response="$(curl "${curl_args[@]}" "$@" 2>&1)"; then
         curl_exit=$?

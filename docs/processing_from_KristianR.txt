@@ -1,0 +1,11 @@
+That's the command I used to prepare the images
+
+No Curve (Resize in RGB)
+for %f in (*.jpg) do magick "%f" -set filename:f "%[t]_out" -colorspace sRGB -resize "1600x1600" -auto-orient temp_curve.png && magick temp_curve.png -dither FloydSteinberg -remap measured_palette_spectra6.png temp_dithered.png && magick temp_dithered.png -define png:color-type=6 -fuzz 0% -fill "rgb(255,255,255)" -opaque "rgb(232,232,232)" -fuzz 0% -fill "rgb(0,255,0)" -opaque "rgb(18,95,32)" -fuzz 0% -fill "rgb(255,255,0)" -opaque "rgb(239,222,68)" -fuzz 0% -fill "rgb(255,0,0)" -opaque "rgb(178,19,24)" -fuzz 0% -fill "rgb(0,0,255)" -opaque "rgb(33,87,186)" -fuzz 0% -fill "rgb(0,0,0)" -opaque "rgb(25,30,33)" "%[filename:f].png" && del temp_curve.png && del temp_dithered.png
+
+As @Guy suggested, I used this palette this time
+Spectra6 (EPDoptimize)
+magick -size 70x10 xc:"rgb(25,30,33)" xc:"rgb(232,232,232)" xc:"rgb(33,87,186)" xc:"rgb(18,95,32)" xc:"rgb(178,19,24)" xc:"rgb(239,222,68)" +append measured_palette_spectra6.png 
+
+
+https://discord.com/channels/1312814821615599717/1360185509099343934/1460316847349170196

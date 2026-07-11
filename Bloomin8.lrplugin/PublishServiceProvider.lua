@@ -365,10 +365,9 @@ local function buildFinishCommand(scriptPath, effectiveSettings)
     local deviceHost = effectiveSettings.bloomin8DeviceHost or ''
     local galleryName = effectiveSettings.bloomin8GalleryName or ''
     local duration = effectiveSettings.bloomin8Duration or '120'
-    local orientation = effectiveSettings.bloomin8Orientation or 'portrait'
     return string.format(
-        'bash %q --mode finish --host %q --gallery %q --duration %q --frame-orientation %q',
-        scriptPath, deviceHost, galleryName, duration, orientation
+        'bash %q --mode finish --host %q --gallery %q --duration %q',
+        scriptPath, deviceHost, galleryName, duration
     )
 end
 

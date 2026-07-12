@@ -90,7 +90,7 @@ perform_request() {
             "$@"
     )"
 
-    LAST_STATUS="$(printf '%s\n' "$response" | sed -n 's/^HTTP_STATUS://p' | tail -n 1)"
+    LAST_STATUS="$(printf '%s\n' "$response" | sed -n 's/^HTTP_STATUS://p' | tail -n 1 | tr -d '\r')"
     LAST_BODY="$(printf '%s\n' "$response" | sed '$d')"
 }
 

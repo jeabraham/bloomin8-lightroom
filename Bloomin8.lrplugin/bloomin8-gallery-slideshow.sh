@@ -425,7 +425,12 @@ for image_path in "${IMAGE_FILES[@]}"; do
     echo "HTTP ${LAST_STATUS}"
     printf '%s\n' "$LAST_BODY"
     [[ "$LAST_STATUS" == "200" ]] || die "upload request failed for: $image_path"
-    grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY" || die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS} for: $image_path"
+    grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY" || {
+        echo "Upload failed for: $image_path" >&2
+        echo "Response body:" >&2
+        echo "$LAST_BODY" >&2
+        die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS}"
+    }
 done
 
 SHOW_BODY="{\"play_type\":1,\"gallery\":\"${SAFE_GALLERY}\",\"duration\":${DURATION}}"

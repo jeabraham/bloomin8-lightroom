@@ -420,7 +420,13 @@ case "$MODE" in
     echo "HTTP ${LAST_STATUS}"
     printf '%s\n' "$LAST_BODY"
     [[ "$LAST_STATUS" == "200" ]] || die "upload request failed for: $image_path"
-    grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY" || die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS} for: $image_path"
+    if grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY"; then
+        : # status 100 – confirmed success
+    elif grep -Eq "\"status\"[[:space:]]*:[[:space:]]*0" <<<"$LAST_BODY"; then
+        echo "WARNING: upload returned status 0 (not ${FIRMWARE_UPLOAD_SUCCESS}) for: $image_path – assuming success (may occur when replacing an existing image)"
+    else
+        die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS} for: $image_path"
+    fi
     ;;
 
   finish)

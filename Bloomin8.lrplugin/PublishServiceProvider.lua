@@ -505,11 +505,10 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         local rendition = item.rendition
         local photo = rendition and rendition.photo
         if type(photo) == 'function' then
-            local resolved = nil
-            local resolvedOk = pcall(function()
-                resolved = rendition:photo()
+            local resolvedOk, resolvedPhoto = pcall(function()
+                return rendition:photo()
             end)
-            photo = resolvedOk and resolved or nil
+            photo = resolvedOk and resolvedPhoto or nil
         end
         if photo and type(photo.getFormattedMetadata) == 'function' then
             item.photoName = photo:getFormattedMetadata('fileName') or item.photoName
@@ -627,7 +626,7 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
             ))
             logShellLines(setupLines, setupLevel, 'setupOutput')
 
-            if setupExit == nil or setupExit ~= 0 then
+            if setupExit ~= 0 then
                 local setupFailedCount = 0
                 for _, item in ipairs(renditionItems) do
                     if item.exportSucceeded and not item.hasFailed then
@@ -645,8 +644,8 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
                 end
 
                 local tailLines = {}
-                local MAX_TAIL_LINES = 10
-                local tailStart = math.max(1, #setupLines - MAX_TAIL_LINES + 1)
+                local maxTailLines = 10
+                local tailStart = math.max(1, #setupLines - maxTailLines + 1)
                 for i = tailStart, #setupLines do
                     tailLines[#tailLines + 1] = setupLines[i]
                 end

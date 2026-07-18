@@ -330,10 +330,21 @@ local function runShellCommand(cmd)
     if captureFile then
         output = captureFile:read('*all') or ''
         captureFile:close()
+    else
+        logger:warn(string.format(
+            '[shellRunner] failed to read captured command output at %q',
+            capturePath
+        ))
     end
 
     if LrFileUtils.exists(capturePath) == 'file' then
-        LrFileUtils.delete(capturePath)
+        local deleted = LrFileUtils.delete(capturePath)
+        if not deleted then
+            logger:warn(string.format(
+                '[shellRunner] failed to delete captured command output at %q',
+                capturePath
+            ))
+        end
     end
 
     local lines = {}

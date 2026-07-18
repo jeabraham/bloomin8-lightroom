@@ -41,8 +41,7 @@ local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
 local SLIDESHOW_WRAPPER_NAME = 'bloomin8-run-slideshow.sh'
 local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check the Bloomin8 plugin log: macOS ~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bloomin8.log ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
 local LIGHTROOM_LOG_HINT_MULTILINE = 'Bloomin8 plugin log:\n  macOS: ~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bloomin8.log\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
--- Sentinel token appended to popen output so the shell exit code can be parsed.
-local EXIT_SENTINEL = 'BLOOMIN8_EXIT'
+local shellCaptureSequence = 0
 
 PublishServiceProvider.supportsIncrementalPublish = 'only'
 
@@ -311,17 +310,34 @@ local function buildSlideshowCommand(scriptPath, effectiveSettings, destinationD
     return cmd
 end
 
--- Runs a shell command via io.popen, capturing all output and the exit code.
+local function nextShellCapturePath()
+    shellCaptureSequence = shellCaptureSequence + 1
+    local tempDirectory = LrPathUtils.getStandardFilePath('temp') or _PLUGIN.path
+    return LrPathUtils.child(
+        tempDirectory,
+        string.format('bloomin8-shell-%d-%d.log', os.time(), shellCaptureSequence)
+    )
+end
+
+-- Runs a shell command via LrTasks.execute, capturing all output and the exit code.
 -- Returns: exitCode (number or nil), lines (table of output strings).
 local function runShellCommand(cmd)
-    -- Redirect stderr to stdout so die() messages are captured alongside normal output.
-    local handle = io.popen('{ ' .. cmd .. '; } 2>&1; printf "\\n' .. EXIT_SENTINEL .. ':%d" $?', 'r')
-    local output = handle and handle:read('*all') or ''
-    if handle then handle:close() end
-    local exitCode = tonumber(output:match(EXIT_SENTINEL .. ':(%d+)'))
-    local scriptOutput = output:gsub('\n' .. EXIT_SENTINEL .. ':%d+%s*$', '')
+    local capturePath = nextShellCapturePath()
+    local output = ''
+    local exitCode = LrTasks.execute(string.format('{ %s; } > %q 2>&1', cmd, capturePath))
+
+    local captureFile = io.open(capturePath, 'r')
+    if captureFile then
+        output = captureFile:read('*all') or ''
+        captureFile:close()
+    end
+
+    if LrFileUtils.exists(capturePath) == 'file' then
+        LrFileUtils.delete(capturePath)
+    end
+
     local lines = {}
-    for line in (scriptOutput .. '\n'):gmatch('([^\n]*)\n') do
+    for line in (output .. '\n'):gmatch('([^\n]*)\n') do
         lines[#lines + 1] = line
     end
     if #lines > 0 and lines[#lines] == '' then

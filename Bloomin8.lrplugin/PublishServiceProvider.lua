@@ -313,9 +313,10 @@ end
 local function nextShellCapturePath()
     shellCaptureSequence = shellCaptureSequence + 1
     local tempDirectory = LrPathUtils.getStandardFilePath('temp') or _PLUGIN.path
+    local uniqueToken = tostring({}):gsub('[^%w]', '')
     return LrPathUtils.child(
         tempDirectory,
-        string.format('bloomin8-shell-%d-%d.log', os.time(), shellCaptureSequence)
+        string.format('bloomin8-shell-%s-%d.log', uniqueToken, shellCaptureSequence)
     )
 end
 
@@ -337,14 +338,12 @@ local function runShellCommand(cmd)
         ))
     end
 
-    if LrFileUtils.exists(capturePath) == 'file' then
-        local deleted = LrFileUtils.delete(capturePath)
-        if not deleted then
-            logger:warn(string.format(
-                '[shellRunner] failed to delete captured command output at %q',
-                capturePath
-            ))
-        end
+    local deleted = LrFileUtils.delete(capturePath)
+    if (not deleted) and (LrFileUtils.exists(capturePath) == 'file') then
+        logger:warn(string.format(
+            '[shellRunner] failed to delete captured command output at %q',
+            capturePath
+        ))
     end
 
     local lines = {}

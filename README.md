@@ -1,13 +1,16 @@
 # bloomin8-lightroom
 
-Adobe Photoshop Lightroom Classic plugin project for publishing photos to a Bloomin8 frame.
+Adobe Photoshop Lightroom Classic plugin for publishing photos to a Bloomin8 frame.
 
-## Goal
+## What it does
 
-Create a Lightroom **publish service** that:
-1. Publishes selected photos to a local directory as JPEG files.
-2. Resizes exports to a 1600px long edge (targeting 1200x1600 display usage).
-3. Uploads those files to a Bloomin8 frame through the public API.
+A Lightroom **publish service** that:
+1. Renders selected photos to a local directory as JPEG files (fit within 1600×1200px).
+2. Resizes and letterboxes each image to match the frame's canvas using ImageMagick.
+3. Uploads photos to a Bloomin8 frame gallery through the device's local API.
+4. Starts gallery slideshow playback on the frame after each publish.
+5. Tracks publish state per-photo — only changed photos are re-uploaded on subsequent publishes.
+6. Deletes photos from the local directory and from the device when removed from a collection.
 
 API reference: https://bloomin8.readme.io/reference/get_deviceinfo
 
@@ -22,97 +25,23 @@ API reference: https://bloomin8.readme.io/reference/get_deviceinfo
 - Optional (for shell-level API diagnostics): `jq`
 
 If the helper works in Terminal but fails from Lightroom, Lightroom may be running
-with a limited `PATH`. The helper now searches common ImageMagick install paths,
+with a limited `PATH`. The helper searches common ImageMagick install paths,
 and you can set `BLOOMIN8_MAGICK_BIN` to an absolute executable path if needed.
 
 ---
 
-## Current implementation status
-
-This repository now implements **Step 1** (foundation + local publish pipeline).
-
-Implemented:
-- Lightroom plugin bundle scaffold: `<repository-root>/Bloomin8.lrplugin`
-- Plugin metadata (`Info.lua`)
-- Export/publish provider (`PublishServiceProvider.lua`)
-- Local directory setting in plugin UI
-- JPEG render defaults with long-edge resize constrained to **1600px**
-- Copy of rendered files into the configured local publish directory
-- Bash probe script for validating the frame API outside Lightroom: `<repository-root>/scripts/bloomin8-upload-probe.sh`
-- Gallery slideshow helper copied into the local publish directory on publish: `bloomin8-gallery-slideshow.sh`
-
-Not implemented yet:
-- Bloomin8 authentication/session handling
-- Device discovery and selection
-- Upload API call flow
-- Publish state sync and retry queue
-
----
-
-## Functional implementation plan (incremental)
-
-### Step 1 (implemented)
-Create plugin skeleton and local publish behavior:
-- Add Lightroom plugin files.
-- Add a configurable local output directory setting.
-- Force JPEG export with 1600 long-edge constraint.
-- Copy each rendered file to the local directory.
-
-### Step 2 (current prototype path)
-Validate the Bloomin8 API outside Lightroom first:
-- Confirm `GET /deviceInfo` connectivity against the real frame.
-- Confirm whether `POST /upload` works without extra auth/session setup.
-- Use one exported JPEG as the test artifact.
-- Capture success/failure responses before writing Lua upload code.
-
-### Step 3
-Add Bloomin8 API client module:
-- Configurable API base URL and credentials/token storage.
-- Request helper with robust error handling and response parsing.
-
-### Step 4
-Add frame/device handshake:
-- Call device info endpoint.
-- Validate connectivity and selected frame target.
-
-### Step 5
-Add upload pipeline:
-- Iterate rendered local files.
-- Upload each image using Bloomin8 API endpoints.
-- Capture per-file success/failure details.
-
-### Step 6
-Add publish-state management:
-- Track published IDs/metadata from Lightroom side.
-- Handle re-publish, removal, and updates.
-
-### Step 7
-Add resilience + diagnostics:
-- Retry policy for transient failures.
-- User-facing status/errors in Lightroom dialogs/logs.
-
-### Step 8
-Hardening and release:
-- Final manual QA in Lightroom Publish Manager.
-- Packaging/versioning and release notes.
-
----
-
-## Step 1 test instructions (manual)
-
-There is no automated Lua test harness in this repository yet. Validate in Lightroom Classic:
+## Installation
 
 1. Open Lightroom Classic.
-2. File → Plug-in Manager → Add and select:
-   - `<repository-root>/Bloomin8.lrplugin`
-3. Create/use an export publish action with this plugin.
-4. Set **Local publish directory** in plugin settings.
-5. Export/publish a small set of photos.
-6. Confirm output files are present in that directory and are JPEG with long edge constrained to 1600px.
+2. **File → Plug-in Manager → Add** and select `<repository-root>/Bloomin8.lrplugin`.
+3. In the **Publish Services** panel (left sidebar), click **Set Up…** next to **Bloomin8 Publish Service**.
+4. Set **Local publish directory** to where exported JPEGs should be stored.
+5. Set **Device host** to the IP address or hostname of your Bloomin8 frame (e.g. `192.168.1.25`).  Leave blank to skip device upload and use the shell scripts manually.
+6. Right-click a collection and choose **Edit Collection Settings** to configure per-collection options (gallery name, duration, playback order, frame orientation).
 
 ---
 
-## Step 2 API probe instructions (manual)
+## API probe (validate device connectivity outside Lightroom)
 
 The repository now includes a bash helper for proving the upload flow outside Lightroom first:
 
@@ -160,13 +89,11 @@ to rotate images whose orientation does not match the frame, then
 scales and letter/pillarboxes them to exactly fill the canvas.  Pass
 `--frame-orientation portrait|landscape` to match how your frame is physically hung.
 
-If this shell-level probe works against the real device, the next code change should be implementing the same request flow in Lua.
-
 ---
 
-## Manual gallery slideshow testing
+## Manual gallery slideshow
 
-Each Lightroom publish now also copies `bloomin8-gallery-slideshow.sh` into the
+Each Lightroom publish copies `bloomin8-gallery-slideshow.sh` into the
 local publish directory alongside the exported JPEGs.
 
 Run it from that directory to upload every `*.jpg`/`*.jpeg` file into one frame
@@ -193,9 +120,9 @@ Current helper behavior:
 
 ## Automated gallery slideshow from Lightroom
 
-The plugin can upload photos and start the slideshow automatically after each
-publish.  Configure the **Step 2: Device Upload & Slideshow** section in the
-plugin settings:
+When **Device host** is configured, Lightroom uploads photos and starts slideshow
+playback automatically after each publish.  Configure the **Device Upload &
+Slideshow** section in the plugin settings:
 
 | Setting | Description |
 |---|---|

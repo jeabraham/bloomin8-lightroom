@@ -18,7 +18,7 @@ Options:
   --gallery NAME                     Destination gallery (default: derived from directory name)
   --duration SECONDS                 Slideshow interval passed to POST /show (default: 120)
   --frame-orientation portrait|landscape
-                                     Orientation of the frame (required)
+                                     Orientation of the frame (required except for --mode finish)
   --pad-color COLOR                  Background fill color used when padding (default: black)
   --random                           Shuffle images into a random upload order
   --connect-timeout N                Curl connect timeout in seconds (default: 5)
@@ -27,6 +27,11 @@ Options:
                                      --file options are given the script runs in incremental mode:
                                      the gallery is not deleted/recreated and only the specified
                                      files are processed and uploaded.
+  --mode begin|upload-one|finish     Run a single stage instead of the full pipeline.
+                                       begin:      verify device, ensure gallery, stop slideshow.
+                                       upload-one: process and upload exactly one --file.
+                                       finish:     send POST /show to start playback.
+                                     Omit for the default full-pipeline mode.
   --help                             Show this message
 
 Environment:
@@ -186,6 +191,8 @@ CONNECT_TIMEOUT=5
 MAX_TIME=60
 RANDOM_ORDER=0
 NEW_FILES=()
+IMAGE_FILES=()
+MODE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -234,6 +241,14 @@ while [[ $# -gt 0 ]]; do
             NEW_FILES+=("$2")
             shift 2
             ;;
+        --mode)
+            MODE="${2:-}"
+            case "$MODE" in
+                begin|upload-one|finish) ;;
+                *) die "--mode must be 'begin', 'upload-one', or 'finish'" ;;
+            esac
+            shift 2
+            ;;
         --help|-h)
             usage
             exit 0
@@ -249,24 +264,37 @@ done
     die "--host is required"
 }
 
-[[ -n "$FRAME_ORIENTATION" ]] || {
-    usage
-    die "--frame-orientation is required (portrait or landscape)"
-}
+# --frame-orientation is not used by --mode finish (no image processing).
+if [[ "$MODE" != "finish" ]]; then
+    [[ -n "$FRAME_ORIENTATION" ]] || {
+        usage
+        die "--frame-orientation is required (portrait or landscape)"
+    }
+fi
 
-[[ -d "$IMAGE_DIR" ]] || die "Image directory not found: $IMAGE_DIR"
+# IMAGE_DIR must exist only for modes that process images.
+if [[ -z "$MODE" || "$MODE" == "upload-one" ]]; then
+    [[ -d "$IMAGE_DIR" ]] || die "Image directory not found: $IMAGE_DIR"
+fi
+
+# upload-one requires exactly one --file argument.
+if [[ "$MODE" == "upload-one" ]]; then
+    [[ "${#NEW_FILES[@]}" -eq 1 ]] || die "--mode upload-one requires exactly one --file argument"
+fi
 
 require_command curl
 
-if [[ -n "${BLOOMIN8_MAGICK_BIN:-}" ]]; then
-    [[ -x "${BLOOMIN8_MAGICK_BIN}" ]] || die "BLOOMIN8_MAGICK_BIN is not executable: ${BLOOMIN8_MAGICK_BIN}"
-    MAGICK_CONVERT=("${BLOOMIN8_MAGICK_BIN}")
-elif MAGICK_PATH="$(find_command_path magick)"; then
-    MAGICK_CONVERT=("${MAGICK_PATH}")
-elif MAGICK_PATH="$(find_command_path convert)"; then
-    MAGICK_CONVERT=("${MAGICK_PATH}")
-else
-    die $'ImageMagick is required for image processing.\n  macOS : brew install imagemagick\n  Debian: apt-get install imagemagick\nIf Lightroom cannot find it, set BLOOMIN8_MAGICK_BIN to the full executable path.'
+if [[ -z "$MODE" || "$MODE" == "upload-one" ]]; then
+    if [[ -n "${BLOOMIN8_MAGICK_BIN:-}" ]]; then
+        [[ -x "${BLOOMIN8_MAGICK_BIN}" ]] || die "BLOOMIN8_MAGICK_BIN is not executable: ${BLOOMIN8_MAGICK_BIN}"
+        MAGICK_CONVERT=("${BLOOMIN8_MAGICK_BIN}")
+    elif MAGICK_PATH="$(find_command_path magick)"; then
+        MAGICK_CONVERT=("${MAGICK_PATH}")
+    elif MAGICK_PATH="$(find_command_path convert)"; then
+        MAGICK_CONVERT=("${MAGICK_PATH}")
+    else
+        die $'ImageMagick is required for image processing.\n  macOS : brew install imagemagick\n  Debian: apt-get install imagemagick\nIf Lightroom cannot find it, set BLOOMIN8_MAGICK_BIN to the full executable path.'
+    fi
 fi
 
 if [[ "$HOST" == http://* || "$HOST" == https://* ]]; then
@@ -275,17 +303,23 @@ else
     BASE_URL="http://${HOST%/}"
 fi
 
-IMAGE_DIR="$(cd "$IMAGE_DIR" && pwd)"
+if [[ -z "$MODE" || "$MODE" == "upload-one" ]]; then
+    IMAGE_DIR="$(cd "$IMAGE_DIR" && pwd)"
+fi
 
-if [[ "${#NEW_FILES[@]}" -gt 0 ]]; then
-    # Incremental mode: only the explicitly specified files are processed and uploaded.
-    IMAGE_FILES=("${NEW_FILES[@]}")
-else
-    collect_images
+if [[ -z "$MODE" ]]; then
+    if [[ "${#NEW_FILES[@]}" -gt 0 ]]; then
+        # Incremental mode: only the explicitly specified files are processed and uploaded.
+        IMAGE_FILES=("${NEW_FILES[@]}")
+    else
+        collect_images
 
-    if [[ "$RANDOM_ORDER" -eq 1 ]]; then
-        shuffle_images
+        if [[ "$RANDOM_ORDER" -eq 1 ]]; then
+            shuffle_images
+        fi
     fi
+elif [[ "$MODE" == "upload-one" ]]; then
+    IMAGE_FILES=("${NEW_FILES[@]}")
 fi
 
 if [[ -z "$GALLERY" ]]; then
@@ -294,51 +328,34 @@ fi
 
 SAFE_GALLERY="$(sanitize_component "$GALLERY")"
 
-case "$DURATION" in
-    ''|*[!0-9]*)
-        die "--duration must be a positive integer"
-        ;;
-esac
-[[ "$DURATION" -gt 0 ]] || die "--duration must be a positive integer"
+if [[ -z "$MODE" || "$MODE" == "finish" ]]; then
+    case "$DURATION" in
+        ''|*[!0-9]*)
+            die "--duration must be a positive integer"
+            ;;
+    esac
+    [[ "$DURATION" -gt 0 ]] || die "--duration must be a positive integer"
+fi
 
-PROCESSED_DIR="${IMAGE_DIR}/processed"
-mkdir -p "$PROCESSED_DIR"
+if [[ -z "$MODE" || "$MODE" == "upload-one" ]]; then
+    PROCESSED_DIR="${IMAGE_DIR}/processed"
+    mkdir -p "$PROCESSED_DIR"
+fi
 
-echo "==> GET ${BASE_URL}/deviceInfo"
-perform_request \
-    -H 'Accept: application/json' \
-    "${BASE_URL}/deviceInfo"
-echo "HTTP ${LAST_STATUS}"
-printf '%s\n' "$LAST_BODY"
-[[ "$LAST_STATUS" == "200" ]] || die "deviceInfo request failed"
+case "$MODE" in
 
-derive_canvas_dimensions
-
-echo
-if [[ "${#NEW_FILES[@]}" -eq 0 ]]; then
-    echo "==> DELETE ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+  begin)
+    # Verify the device is reachable, ensure the gallery exists, and stop any
+    # active slideshow so subsequent upload-one calls are accepted by the firmware.
+    echo "==> GET ${BASE_URL}/deviceInfo"
     perform_request \
         -H 'Accept: application/json' \
-        -X DELETE \
-        "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
-    echo "HTTP ${LAST_STATUS}"
-    if [[ "$LAST_STATUS" == "200" ]]; then
-        printf '%s\n' "$LAST_BODY"
-    else
-        echo "(Gallery did not already exist or delete was not accepted; continuing.)"
-    fi
-
-    echo
-    echo "==> PUT ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
-    perform_request \
-        -H 'Accept: application/json' \
-        -X PUT \
-        "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+        "${BASE_URL}/deviceInfo"
     echo "HTTP ${LAST_STATUS}"
     printf '%s\n' "$LAST_BODY"
-    [[ "$LAST_STATUS" == "200" ]] || die "gallery creation failed"
-else
-    # Incremental mode: ensure the gallery exists; ignore failure if it already exists.
+    [[ "$LAST_STATUS" == "200" ]] || die "deviceInfo request failed"
+
+    echo
     echo "==> PUT ${BASE_URL}/gallery?name=${SAFE_GALLERY} (ensure exists)"
     perform_request \
         -H 'Accept: application/json' \
@@ -350,10 +367,9 @@ else
         echo "HTTP ${LAST_STATUS:-unknown} (gallery may already exist; continuing)"
     fi
 
-    # Stop any active slideshow before uploading.  The firmware returns status 3
-    # (not 100) when POST /upload is called while a gallery slideshow is playing,
-    # preventing the upload from being accepted.  POST /stop pauses playback so
-    # the uploads succeed; POST /show at the end of this script restarts it.
+    # Stop any active slideshow.  The firmware returns status 3 (not 100) when
+    # POST /upload is called while a gallery slideshow is playing, preventing
+    # uploads from being accepted.  POST /stop pauses playback so uploads succeed.
     echo
     echo "==> POST ${BASE_URL}/stop"
     perform_request \
@@ -361,57 +377,36 @@ else
         -X POST \
         "${BASE_URL}/stop" || true
     echo "HTTP ${LAST_STATUS:-unknown}"
-fi
+    ;;
 
-# Indexed array of remote filenames already claimed in this run.
-# Using an indexed array (bash 3.2-compatible) instead of an associative
-# array (which requires bash 4+, unavailable on stock macOS).
-used_remote_names=()
+  upload-one)
+    # Process and upload exactly one image file (specified via --file).
+    echo "==> GET ${BASE_URL}/deviceInfo"
+    perform_request \
+        -H 'Accept: application/json' \
+        "${BASE_URL}/deviceInfo"
+    echo "HTTP ${LAST_STATUS}"
+    printf '%s\n' "$LAST_BODY"
+    [[ "$LAST_STATUS" == "200" ]] || die "deviceInfo request failed"
 
-name_in_use() {
-    local name="$1" n
-    for n in "${used_remote_names[@]+"${used_remote_names[@]}"}"; do
-        [[ "$n" == "$name" ]] && return 0
-    done
-    return 1
-}
+    derive_canvas_dimensions
 
-image_index=0
-for image_path in "${IMAGE_FILES[@]}"; do
-    image_index=$((image_index + 1))
-
-    # Derive the remote filename from the plain basename (no sequence prefix).
-    # On collision, append _2, _3, … before the extension.
-    base_remote="$(sanitize_component "$(basename "$image_path")")"
-    if [[ "$base_remote" == *.* ]]; then
-        stem="${base_remote%.*}"
-        ext=".${base_remote##*.}"
-    else
-        stem="$base_remote"
-        ext=""
-    fi
-    remote_filename="$base_remote"
-    suffix=2
-    while name_in_use "$remote_filename"; do
-        remote_filename="${stem}_${suffix}${ext}"
-        suffix=$(( suffix + 1 ))
-    done
-    used_remote_names+=("$remote_filename")
-
-    prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
+    image_path="${IMAGE_FILES[0]}"
+    image_stem="$(sanitize_component "$(basename "${image_path%.*}")")"
+    prepared_image="$(prepare_image "$image_path" "$image_stem")"
     [[ -f "$prepared_image" ]] || die "Image preparation failed (ImageMagick error?) for: $image_path"
 
-    if [[ "${#NEW_FILES[@]}" -gt 0 ]]; then
-        # Incremental: delete any existing copy from the device first (ignore failure –
-        # the file may not exist yet for a brand-new photo).
-        echo
-        echo "==> POST ${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY} (pre-delete)"
-        perform_request \
-            -H 'Accept: application/json' \
-            -X POST \
-            "${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY}" || true
-        echo "HTTP ${LAST_STATUS:-skipped}"
-    fi
+    remote_filename="$(sanitize_component "$(basename "$image_path")")"
+
+    # Delete any existing copy from the device first (ignore failure – the file
+    # may not exist yet for a brand-new photo).
+    echo
+    echo "==> POST ${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY} (pre-delete)"
+    perform_request \
+        -H 'Accept: application/json' \
+        -X POST \
+        "${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY}" || true
+    echo "HTTP ${LAST_STATUS:-skipped}"
 
     echo
     echo "==> Uploading processed file:"
@@ -425,27 +420,179 @@ for image_path in "${IMAGE_FILES[@]}"; do
     echo "HTTP ${LAST_STATUS}"
     printf '%s\n' "$LAST_BODY"
     [[ "$LAST_STATUS" == "200" ]] || die "upload request failed for: $image_path"
-    grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY" || {
-        echo "Upload failed for: $image_path" >&2
-        echo "Response body:" >&2
-        echo "$LAST_BODY" >&2
-        die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS}"
+    if grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY"; then
+        : # status 100 – confirmed success
+    elif grep -Eq "\"status\"[[:space:]]*:[[:space:]]*0" <<<"$LAST_BODY"; then
+        echo "WARNING: upload returned status 0 (not ${FIRMWARE_UPLOAD_SUCCESS}) for: $image_path – assuming success (may occur when replacing an existing image)"
+    else
+        die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS} for: $image_path"
+    fi
+    ;;
+
+  finish)
+    # Send POST /show to start the gallery slideshow on the device.
+    SHOW_BODY="{\"play_type\":1,\"gallery\":\"${SAFE_GALLERY}\",\"duration\":${DURATION}}"
+
+    echo
+    echo "==> POST ${BASE_URL}/show"
+    perform_request \
+        -H 'Accept: application/json' \
+        -H 'Content-Type: application/json' \
+        -X POST \
+        -d "$SHOW_BODY" \
+        "${BASE_URL}/show"
+    echo "HTTP ${LAST_STATUS}"
+    printf '%s\n' "$LAST_BODY"
+    [[ "$LAST_STATUS" == "200" ]] || die "show request failed"
+
+    echo
+    echo "Slideshow started for gallery: ${SAFE_GALLERY}"
+    ;;
+
+  "")
+    # Default full-pipeline mode: delete/recreate gallery (or incremental update),
+    # process and upload all images, then start the slideshow.  This mode is used
+    # when the script is run directly from the terminal.
+    echo "==> GET ${BASE_URL}/deviceInfo"
+    perform_request \
+        -H 'Accept: application/json' \
+        "${BASE_URL}/deviceInfo"
+    echo "HTTP ${LAST_STATUS}"
+    printf '%s\n' "$LAST_BODY"
+    [[ "$LAST_STATUS" == "200" ]] || die "deviceInfo request failed"
+
+    derive_canvas_dimensions
+
+    echo
+    if [[ "${#NEW_FILES[@]}" -eq 0 ]]; then
+        echo "==> DELETE ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+        perform_request \
+            -H 'Accept: application/json' \
+            -X DELETE \
+            "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+        echo "HTTP ${LAST_STATUS}"
+        if [[ "$LAST_STATUS" == "200" ]]; then
+            printf '%s\n' "$LAST_BODY"
+        else
+            echo "(Gallery did not already exist or delete was not accepted; continuing.)"
+        fi
+
+        echo
+        echo "==> PUT ${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+        perform_request \
+            -H 'Accept: application/json' \
+            -X PUT \
+            "${BASE_URL}/gallery?name=${SAFE_GALLERY}"
+        echo "HTTP ${LAST_STATUS}"
+        printf '%s\n' "$LAST_BODY"
+        [[ "$LAST_STATUS" == "200" ]] || die "gallery creation failed"
+    else
+        # Incremental mode: ensure the gallery exists; ignore failure if it already exists.
+        echo "==> PUT ${BASE_URL}/gallery?name=${SAFE_GALLERY} (ensure exists)"
+        perform_request \
+            -H 'Accept: application/json' \
+            -X PUT \
+            "${BASE_URL}/gallery?name=${SAFE_GALLERY}" || true
+        if [[ "$LAST_STATUS" == "200" ]]; then
+            echo "HTTP ${LAST_STATUS} (gallery created)"
+        else
+            echo "HTTP ${LAST_STATUS:-unknown} (gallery may already exist; continuing)"
+        fi
+
+        # Stop any active slideshow before uploading.  The firmware returns status 3
+        # (not 100) when POST /upload is called while a gallery slideshow is playing,
+        # preventing the upload from being accepted.  POST /stop pauses playback so
+        # the uploads succeed; POST /show at the end of this script restarts it.
+        echo
+        echo "==> POST ${BASE_URL}/stop"
+        perform_request \
+            -H 'Accept: application/json' \
+            -X POST \
+            "${BASE_URL}/stop" || true
+        echo "HTTP ${LAST_STATUS:-unknown}"
+    fi
+
+    # Indexed array of remote filenames already claimed in this run.
+    # Using an indexed array (bash 3.2-compatible) instead of an associative
+    # array (which requires bash 4+, unavailable on stock macOS).
+    used_remote_names=()
+
+    name_in_use() {
+        local name="$1" n
+        for n in "${used_remote_names[@]+"${used_remote_names[@]}"}"; do
+            [[ "$n" == "$name" ]] && return 0
+        done
+        return 1
     }
-done
 
-SHOW_BODY="{\"play_type\":1,\"gallery\":\"${SAFE_GALLERY}\",\"duration\":${DURATION}}"
+    image_index=0
+    for image_path in "${IMAGE_FILES[@]}"; do
+        image_index=$((image_index + 1))
 
-echo
-echo "==> POST ${BASE_URL}/show"
-perform_request \
-    -H 'Accept: application/json' \
-    -H 'Content-Type: application/json' \
-    -X POST \
-    -d "$SHOW_BODY" \
-    "${BASE_URL}/show"
-echo "HTTP ${LAST_STATUS}"
-printf '%s\n' "$LAST_BODY"
-[[ "$LAST_STATUS" == "200" ]] || die "show request failed"
+        # Derive the remote filename from the plain basename (no sequence prefix).
+        # On collision, append _2, _3, … before the extension.
+        base_remote="$(sanitize_component "$(basename "$image_path")")"
+        if [[ "$base_remote" == *.* ]]; then
+            stem="${base_remote%.*}"
+            ext=".${base_remote##*.}"
+        else
+            stem="$base_remote"
+            ext=""
+        fi
+        remote_filename="$base_remote"
+        suffix=2
+        while name_in_use "$remote_filename"; do
+            remote_filename="${stem}_${suffix}${ext}"
+            suffix=$(( suffix + 1 ))
+        done
+        used_remote_names+=("$remote_filename")
 
-echo
-echo "Slideshow upload succeeded for gallery: ${SAFE_GALLERY}"
+        prepared_image="$(prepare_image "$image_path" "$(printf '%04d' "$image_index")")"
+        [[ -f "$prepared_image" ]] || die "Image preparation failed (ImageMagick error?) for: $image_path"
+
+        if [[ "${#NEW_FILES[@]}" -gt 0 ]]; then
+            # Incremental: delete any existing copy from the device first (ignore failure –
+            # the file may not exist yet for a brand-new photo).
+            echo
+            echo "==> POST ${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY} (pre-delete)"
+            perform_request \
+                -H 'Accept: application/json' \
+                -X POST \
+                "${BASE_URL}/image/delete?image=${remote_filename}&gallery=${SAFE_GALLERY}" || true
+            echo "HTTP ${LAST_STATUS:-skipped}"
+        fi
+
+        echo
+        echo "==> Uploading processed file:"
+        ls -la "$prepared_image"
+        echo "==> POST ${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}"
+        perform_request \
+            -H 'Accept: application/json' \
+            -X POST \
+            -F "image=@${prepared_image};type=image/jpeg" \
+            "${BASE_URL}/upload?filename=${remote_filename}&gallery=${SAFE_GALLERY}"
+        echo "HTTP ${LAST_STATUS}"
+        printf '%s\n' "$LAST_BODY"
+        [[ "$LAST_STATUS" == "200" ]] || die "upload request failed for: $image_path"
+        grep -Eq "\"status\"[[:space:]]*:[[:space:]]*${FIRMWARE_UPLOAD_SUCCESS}" <<<"$LAST_BODY" || die "upload did not return status ${FIRMWARE_UPLOAD_SUCCESS} for: $image_path"
+    done
+
+    SHOW_BODY="{\"play_type\":1,\"gallery\":\"${SAFE_GALLERY}\",\"duration\":${DURATION}}"
+
+    echo
+    echo "==> POST ${BASE_URL}/show"
+    perform_request \
+        -H 'Accept: application/json' \
+        -H 'Content-Type: application/json' \
+        -X POST \
+        -d "$SHOW_BODY" \
+        "${BASE_URL}/show"
+    echo "HTTP ${LAST_STATUS}"
+    printf '%s\n' "$LAST_BODY"
+    [[ "$LAST_STATUS" == "200" ]] || die "show request failed"
+
+    echo
+    echo "Slideshow upload succeeded for gallery: ${SAFE_GALLERY}"
+    ;;
+
+esac

@@ -3,6 +3,8 @@ local LrErrors = import 'LrErrors'
 local LrFileUtils = import 'LrFileUtils'
 local LrLogger = import 'LrLogger'
 local LrPathUtils = import 'LrPathUtils'
+local LrProgressScope = import 'LrProgressScope'
+local LrTasks = import 'LrTasks'
 local LrView = import 'LrView'
 
 local bind = LrView.bind
@@ -39,8 +41,7 @@ local SLIDESHOW_HELPER_NAME = 'bloomin8-gallery-slideshow.sh'
 local SLIDESHOW_WRAPPER_NAME = 'bloomin8-run-slideshow.sh'
 local LIGHTROOM_LOG_HINT_INLINE = 'If upload fails, check the Bloomin8 plugin log: macOS ~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bloomin8.log ; Windows %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
 local LIGHTROOM_LOG_HINT_MULTILINE = 'Bloomin8 plugin log:\n  macOS: ~/Library/Logs/Adobe/Lightroom/LrClassicLogs/bloomin8.log\n  Windows: %AppData%\\Adobe\\Lightroom\\Logs\\bloomin8.log'
--- Sentinel token appended to popen output so the shell exit code can be parsed.
-local EXIT_SENTINEL = 'BLOOMIN8_EXIT'
+local shellCaptureSequence = 0
 
 PublishServiceProvider.supportsIncrementalPublish = 'only'
 
@@ -309,28 +310,94 @@ local function buildSlideshowCommand(scriptPath, effectiveSettings, destinationD
     return cmd
 end
 
--- Builds a shell command for an incremental publish: only the files in filePaths
--- are processed and uploaded; the gallery on the device is not wiped.
-local function buildIncrementalCommand(scriptPath, effectiveSettings, destinationDirectory, filePaths)
+local function nextShellCapturePath()
+    shellCaptureSequence = shellCaptureSequence + 1
+    local tempDirectory = LrPathUtils.getStandardFilePath('temp') or _PLUGIN.path
+    local uniqueToken = tostring({}):gsub('[^%w]', '')
+    return LrPathUtils.child(
+        tempDirectory,
+        string.format('bloomin8-shell-%d-%d-%s.log', os.time(), shellCaptureSequence, uniqueToken)
+    )
+end
+
+-- Runs a shell command via LrTasks.execute, capturing all output and the exit code.
+-- Returns: exitCode (number or nil), lines (table of output strings).
+local function runShellCommand(cmd)
+    local capturePath = nextShellCapturePath()
+    local output = ''
+    local executeCommand = string.format('bash -lc %q > %q 2>&1', cmd, capturePath)
+    local exitCode = LrTasks.execute(executeCommand)
+
+    local captureFile = io.open(capturePath, 'r')
+    if captureFile then
+        output = captureFile:read('*all') or ''
+        captureFile:close()
+    else
+        logger:warn(string.format(
+            '[shellRunner] failed to read captured command output at %q',
+            capturePath
+        ))
+    end
+
+    local captureExists = (LrFileUtils.exists(capturePath) == 'file')
+    local deleted = LrFileUtils.delete(capturePath)
+    if captureExists and (not deleted) and (LrFileUtils.exists(capturePath) == 'file') then
+        logger:warn(string.format(
+            '[shellRunner] failed to delete captured command output at %q',
+            capturePath
+        ))
+    end
+
+    local lines = {}
+    for line in (output .. '\n'):gmatch('([^\n]*)\n') do
+        lines[#lines + 1] = line
+    end
+    if #lines > 0 and lines[#lines] == '' then
+        table.remove(lines)
+    end
+    return exitCode, lines
+end
+
+-- Logs each line of shell output to the plugin log.
+-- LrLogger silently drops multi-line strings, so lines are logged individually.
+local function logShellLines(lines, level, tag)
+    for i, line in ipairs(lines) do
+        logger[level](logger, string.format('[%s:%d] %s', tag, i, line))
+    end
+end
+
+-- Builds the --mode begin command: verifies device connectivity, ensures the
+-- gallery exists, and stops any active slideshow before per-image uploads.
+local function buildSetupCommand(scriptPath, effectiveSettings, destinationDirectory)
+    local deviceHost = effectiveSettings.bloomin8DeviceHost or ''
+    local galleryName = effectiveSettings.bloomin8GalleryName or ''
+    local orientation = effectiveSettings.bloomin8Orientation or 'portrait'
+    return string.format(
+        'bash %q --mode begin --host %q --gallery %q --frame-orientation %q --image-dir %q',
+        scriptPath, deviceHost, galleryName, orientation, destinationDirectory
+    )
+end
+
+-- Builds the --mode upload-one command: processes and uploads exactly one image.
+local function buildUploadOneCommand(scriptPath, effectiveSettings, destinationDirectory, filePath)
+    local deviceHost = effectiveSettings.bloomin8DeviceHost or ''
+    local galleryName = effectiveSettings.bloomin8GalleryName or ''
+    local orientation = effectiveSettings.bloomin8Orientation or 'portrait'
+    return string.format(
+        'bash %q --mode upload-one --host %q --gallery %q --frame-orientation %q --image-dir %q --file %q',
+        scriptPath, deviceHost, galleryName, orientation, destinationDirectory, filePath
+    )
+end
+
+-- Builds the --mode finish command: sends POST /show to start gallery playback.
+local function buildFinishCommand(scriptPath, effectiveSettings)
     local deviceHost = effectiveSettings.bloomin8DeviceHost or ''
     local galleryName = effectiveSettings.bloomin8GalleryName or ''
     local duration = effectiveSettings.bloomin8Duration or '120'
-    local orientation = effectiveSettings.bloomin8Orientation or ''
-
-    local cmd = string.format(
-        'bash %q --host %q --image-dir %q --gallery %q --duration %q',
-        scriptPath, deviceHost, destinationDirectory, galleryName, duration
+    return string.format(
+        'bash %q --mode finish --host %q --gallery %q --duration %q',
+        scriptPath, deviceHost, galleryName, duration
     )
-
-    if orientation ~= '' then
-        cmd = cmd .. string.format(' --frame-orientation %q', orientation)
-    end
-
-    for _, filePath in ipairs(filePaths) do
-        cmd = cmd .. string.format(' --file %q', filePath)
-    end
-
-    return cmd
 end
 
 local function writeSlideshowWrapper(destinationDirectory, effectiveSettings)
@@ -396,243 +463,365 @@ function PublishServiceProvider.processRenderedPhotos(functionContext, exportCon
         LrErrors.throwUserError(err)
     end
 
-    local nRenditions    = 0
-    local nFailed        = 0
-    local failedNames    = {}
-    -- Locally-copied renditions whose publish state is committed only after a
-    -- successful device upload (or immediately when no device host is configured).
-    local localSucceeded = {}
+    local renditionItems = {}
+    for _, rendition in exportSession:renditions { stopIfCanceled = false } do
+        renditionItems[#renditionItems + 1] = {
+            rendition       = rendition,
+            photoName       = '(unknown)',
+            destinationPath = nil,
+            exportSucceeded = false,
+            hasFailed       = false,
+        }
+    end
 
-    for _, rendition in exportSession:renditions { stopIfCanceled = true } do
-        nRenditions = nRenditions + 1
+    local nRenditions = #renditionItems
+    local totalTicks = nRenditions * 2
+    local completedTicks = 0
+    local nFailed = 0
+    local failedNames = {}
+    local nDeviceUploaded = 0
+    local exportCanceled = false
+    local uploadCanceled = false
+    local setupFailureMessage = nil
 
-        -- previousId is the path stored by the last successful recordPublishedPhotoId call,
-        -- or nil when this photo has never been successfully published.
-        local previousId = rendition.publishedPhotoId
-        local photo = rendition.photo
-        local photoName = '(unknown)'
+    local progress = LrProgressScope {
+        title = string.format('Bloomin8: publishing %d photo(s)', nRenditions),
+        functionContext = functionContext,
+    }
 
+    local function tick(caption)
+        completedTicks = math.min(completedTicks + 1, totalTicks)
+        if caption then
+            progress:setCaption(caption)
+        end
+        if totalTicks > 0 then
+            progress:setPortionComplete(completedTicks, totalTicks)
+        end
+        LrTasks.yield()
+    end
+
+    local function completeProgress(caption)
+        if caption then
+            progress:setCaption(caption)
+        end
+        if totalTicks > 0 then
+            progress:setPortionComplete(totalTicks, totalTicks)
+        end
+    end
+
+    local function doneAndReturn(caption)
+        completeProgress(caption)
+        progress:done()
+    end
+
+    local function markFailed(item, failMsg, logMessage, logLevel)
+        if item.rendition and item.rendition.uploadFailed then
+            item.rendition:uploadFailed(failMsg)
+        end
+        if not item.hasFailed then
+            item.hasFailed = true
+            nFailed = nFailed + 1
+            failedNames[#failedNames + 1] = item.photoName
+        end
+        logger[logLevel or 'warn'](logger, logMessage)
+    end
+
+    local function resolvePhotoName(item)
+        if item.photoName ~= '(unknown)' then
+            return
+        end
+        local rendition = item.rendition
+        local photo = rendition and rendition.photo
         if type(photo) == 'function' then
-            local ok, resolvedPhoto = pcall(function()
+            local resolvedOk, resolvedPhoto = pcall(function()
                 return rendition:photo()
             end)
-
-            photo = ok and resolvedPhoto or nil
+            photo = resolvedOk and resolvedPhoto or nil
         end
-
         if photo and type(photo.getFormattedMetadata) == 'function' then
-            photoName = photo:getFormattedMetadata('fileName') or photoName
+            item.photoName = photo:getFormattedMetadata('fileName') or item.photoName
         end
+    end
+
+    if nRenditions == 0 then
+        logger:info('[publishState] no renditions to process')
+        doneAndReturn('No photos to publish')
+        return
+    end
+
+    local deviceHost = exportSettings.bloomin8DeviceHost or ''
+    local effectiveSettings = {
+        bloomin8DeviceHost  = deviceHost,
+        bloomin8GalleryName = galleryName,
+        bloomin8Duration    = collectionSettings.bloomin8Duration    or '120',
+        bloomin8RandomOrder = collectionSettings.bloomin8RandomOrder,
+        bloomin8Orientation = collectionSettings.bloomin8Orientation or 'portrait',
+    }
+
+    local helperPath = nil
+    if deviceHost ~= '' then
+        helperPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
+        -- Always write the wrapper script so it can be re-run manually from Terminal.
+        local ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, effectiveSettings)
+        if not ok then
+            doneAndReturn('Failed preparing publish wrapper')
+            LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
+            LrErrors.throwUserError(err)
+        end
+        logger:info(string.format('[publishState] wrote slideshow wrapper: %q', tostring(wrapperPath)))
+    end
+
+    for i, item in ipairs(renditionItems) do
+        if progress:isCanceled() then
+            exportCanceled = true
+            logger:warn(string.format(
+                '[publishState] export phase canceled at rendition %d of %d',
+                i, nRenditions
+            ))
+            for j = i, nRenditions do
+                local remaining = renditionItems[j]
+                resolvePhotoName(remaining)
+                markFailed(
+                    remaining,
+                    'Publish canceled during export; photo will be re-queued for publish',
+                    string.format('[publishState] uploadFailed (export canceled) for %q', remaining.photoName)
+                )
+                tick(string.format('Export canceled: %s', remaining.photoName))
+            end
+            break
+        end
+
+        local rendition = item.rendition
+        local previousId = rendition.publishedPhotoId
+        resolvePhotoName(item)
 
         logger:info(string.format(
             '[publishState] rendition #%d: photo=%q previousId=%s',
-            nRenditions, photoName,
+            i, item.photoName,
             previousId and string.format('%q', previousId) or 'nil (never published)'
         ))
 
         local success, pathOrMessage = rendition:waitForRender()
-
         if not success then
-            nFailed = nFailed + 1
-            failedNames[#failedNames + 1] = photoName
-            logger:warn(string.format(
-                '[publishState] render FAILED for %q: %s', photoName, tostring(pathOrMessage)
-            ))
-            rendition:uploadFailed(pathOrMessage)
+            markFailed(
+                item,
+                tostring(pathOrMessage),
+                string.format('[publishState] render FAILED for %q: %s', item.photoName, tostring(pathOrMessage))
+            )
+            tick(string.format('Export failed: %s', item.photoName))
         else
             local outputFilename = LrPathUtils.leafName(pathOrMessage)
             local destinationPath = LrPathUtils.child(destinationDirectory, outputFilename)
-
-            logger:info(string.format(
-                '[publishState] rendered %q -> destinationPath=%q (previousId match: %s)',
-                photoName, destinationPath,
-                (previousId == destinationPath) and 'yes' or
-                    (previousId == nil and 'nil – first publish' or
-                     string.format('NO (was %q)', previousId))
-            ))
-
             local copied, copyErr = copyFileReplacingExisting(pathOrMessage, destinationPath)
-
             if copied then
-                -- Defer recordPublishedPhotoId until after the device upload so that
-                -- a failed device upload leaves these photos in the publish queue.
-                localSucceeded[#localSucceeded + 1] = {
-                    rendition       = rendition,
-                    destinationPath = destinationPath,
-                    photoName       = photoName,
-                }
+                item.exportSucceeded = true
+                item.destinationPath = destinationPath
                 logger:info(string.format(
-                    '[publishState] local copy succeeded for %q -> %q (publish state deferred)',
-                    photoName, destinationPath
+                    '[publishState] local copy succeeded for %q -> %q',
+                    item.photoName, destinationPath
                 ))
+                tick(string.format('Exported %s (%d/%d)', item.photoName, i, nRenditions))
             else
-                nFailed = nFailed + 1
-                failedNames[#failedNames + 1] = photoName
-                local failMsg = string.format('Failed copying %s to %s: %s', pathOrMessage, destinationPath, tostring(copyErr))
-                if rendition.uploadFailed then
-                    rendition:uploadFailed(failMsg)
-                end
-                logger:error(string.format(
-                    '[publishState] uploadFailed for %q: %s', photoName, failMsg
-                ))
-            end
-        end
-    end
-
-    local nSucceeded = #localSucceeded
-
-    logger:info(string.format(
-        '[publishState] publish loop complete: renditions=%d succeeded=%d failed=%d',
-        nRenditions, nSucceeded, nFailed
-    ))
-
-    -- Surface a warning if any file copies failed so the user can see their publish
-    -- state is not fully committed.  These photos will remain in "New Photos to
-    -- Publish" or "Modified Photos to Re-publish" and should be retried.
-    if nFailed > 0 then
-        local msg = string.format(
-            '%d of %d photo(s) could not be copied to the local publish directory and were NOT marked as published:\n\n%s\n\nThey will remain in "New Photos to Publish" until a successful publish. Check the Lightroom log for details.\n%s',
-            nFailed, nRenditions,
-            table.concat(failedNames, '\n'),
-            LIGHTROOM_LOG_HINT_MULTILINE
-        )
-        logger:error('[publishState] ' .. msg)
-        LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
-    end
-
-    local deviceHost = exportSettings.bloomin8DeviceHost or ''
-    if deviceHost ~= '' then
-        -- Merge service-level and collection-level settings for the wrapper script
-        local effectiveSettings = {
-            bloomin8DeviceHost  = deviceHost,
-            bloomin8GalleryName = galleryName,
-            bloomin8Duration    = collectionSettings.bloomin8Duration    or '120',
-            bloomin8RandomOrder = collectionSettings.bloomin8RandomOrder,
-            bloomin8Orientation = collectionSettings.bloomin8Orientation or 'portrait',
-        }
-
-        -- Always write the wrapper script so it can be re-run manually from Terminal
-        -- for a full gallery sync (it uses --image-dir, not --file).
-        local ok, wrapperPath, err = writeSlideshowWrapper(destinationDirectory, effectiveSettings)
-        if not ok then
-            LrDialogs.message('Bloomin8 Publish Service', err, 'critical')
-            LrErrors.throwUserError(err)
-        end
-
-        local cmd
-        if #localSucceeded == 0 then
-            -- Nothing was successfully rendered/copied; skip the device upload entirely.
-            logger:info('[publishState] no files succeeded; skipping device upload')
-            return
-        else
-            -- Incremental publish: only process and upload the newly rendered files.
-            -- The gallery on the device is NOT wiped – existing photos are preserved.
-            local helperPath = LrPathUtils.child(destinationDirectory, SLIDESHOW_HELPER_NAME)
-            local newFilePaths = {}
-            for _, item in ipairs(localSucceeded) do
-                newFilePaths[#newFilePaths + 1] = item.destinationPath
-            end
-            cmd = buildIncrementalCommand(helperPath, effectiveSettings, destinationDirectory, newFilePaths)
-            logger:info(string.format(
-                '[publishState] incremental upload command: %s', cmd
-            ))
-        end
-
-        -- os.execute is unavailable in Lightroom's Lua sandbox; use io.popen
-        -- Redirect stderr to stdout (2>&1) so that error messages from die() are
-        -- captured alongside normal output instead of being silently discarded.
-        -- Append exit-code sentinel so we can detect failures.
-        local handle = io.popen('{ ' .. cmd .. '; } 2>&1; printf "\\n' .. EXIT_SENTINEL .. ':%d" $?', 'r')
-        local output = handle and handle:read('*all') or ''
-        if handle then handle:close() end
-
-        local exitCode = tonumber(output:match(EXIT_SENTINEL .. ':(%d+)'))
-        -- Strip the sentinel line from the output before logging/displaying it.
-        -- printf always prefixes the sentinel with \n so a single pattern suffices.
-        local scriptOutput = output:gsub('\n' .. EXIT_SENTINEL .. ':%d+%s*$', '')
-        -- LrLogger silently drops multi-line messages, so split and log each line
-        -- individually.  Always log full output (success or failure) so the HTTP
-        -- response bodies are visible in bloomin8.log for diagnostics.
-        -- Use (scriptOutput..'\n'):gmatch to preserve empty lines in the output.
-        local scriptLines = {}
-        for line in (scriptOutput .. '\n'):gmatch('([^\n]*)\n') do
-            scriptLines[#scriptLines + 1] = line
-        end
-        -- Remove a trailing empty entry added by the forced \n if output ends with \n.
-        if #scriptLines > 0 and scriptLines[#scriptLines] == '' then
-            table.remove(scriptLines)
-        end
-        do
-            local level = (exitCode ~= 0) and 'error' or 'info'
-            logger[level](logger, string.format(
-                '[scriptOutput] exit=%s lines=%d',
-                tostring(exitCode), #scriptLines
-            ))
-            for i, line in ipairs(scriptLines) do
-                logger[level](logger, string.format('[scriptOutput:%d] %s', i, line))
-            end
-        end
-
-        if exitCode == nil or exitCode ~= 0 then
-            -- Device upload failed: mark locally-copied photos as upload-failed so
-            -- they re-appear in "New/Modified Photos to Publish" on the next run.
-            for _, item in ipairs(localSucceeded) do
                 local failMsg = string.format(
-                    'Device upload failed (exit code %s); photo will be re-queued for publish',
-                    tostring(exitCode)
+                    'Failed copying %s to %s: %s',
+                    pathOrMessage, destinationPath, tostring(copyErr)
                 )
-                item.rendition:uploadFailed(failMsg)
-                logger:warn(string.format(
-                    '[publishState] uploadFailed (device error) for %q: %s',
-                    item.photoName, failMsg
-                ))
-            end
-            -- Include the last few lines of script output in the dialog so the user
-            -- sees the actual failure reason without needing to find the log file.
-            local MAX_TAIL_LINES = 10
-            local tailStart = math.max(1, #scriptLines - MAX_TAIL_LINES + 1)
-            local tailLines = {}
-            for i = tailStart, #scriptLines do
-                tailLines[#tailLines + 1] = scriptLines[i]
-            end
-            local outputSnippet = table.concat(tailLines, '\n')
-            local msg
-            if outputSnippet ~= '' then
-                msg = string.format(
-                    'Slideshow upload finished with errors (exit code %s).\n%d photo(s) have been re-queued and will appear in "New/Modified Photos to Publish".\n\nScript output:\n%s\n\n%s',
-                    tostring(exitCode),
-                    nSucceeded,
-                    outputSnippet,
-                    LIGHTROOM_LOG_HINT_MULTILINE
+                markFailed(
+                    item,
+                    failMsg,
+                    string.format('[publishState] uploadFailed for %q: %s', item.photoName, failMsg),
+                    'error'
                 )
+                tick(string.format('Export failed: %s', item.photoName))
+            end
+        end
+    end
+
+    if exportCanceled then
+        local remainingUploadTicks = nRenditions
+        for i = 1, remainingUploadTicks do
+            tick(string.format('Upload skipped (%d/%d)', i, remainingUploadTicks))
+        end
+        doneAndReturn('Publish canceled during export')
+    else
+        if deviceHost ~= '' then
+            local setupCmd = buildSetupCommand(helperPath, effectiveSettings, destinationDirectory)
+            logger:info('[publishState] device setup command: ' .. setupCmd)
+            local setupExit, setupLines = runShellCommand(setupCmd)
+            local setupLevel = (setupExit ~= 0) and 'error' or 'info'
+            logger[setupLevel](logger, string.format(
+                '[setupOutput] exit=%s lines=%d', tostring(setupExit), #setupLines
+            ))
+            logShellLines(setupLines, setupLevel, 'setupOutput')
+
+            if setupExit ~= 0 then
+                local setupFailedCount = 0
+                for _, item in ipairs(renditionItems) do
+                    if item.exportSucceeded and not item.hasFailed then
+                        setupFailedCount = setupFailedCount + 1
+                        local failMsg = string.format(
+                            'Device setup failed (exit code %s); photo will be re-queued for publish',
+                            tostring(setupExit)
+                        )
+                        markFailed(
+                            item,
+                            failMsg,
+                            string.format('[publishState] uploadFailed (setup error) for %q: %s', item.photoName, failMsg)
+                        )
+                    end
+                end
+
+                local tailLines = {}
+                local maxTailLines = 10
+                local tailStart = math.max(1, #setupLines - maxTailLines + 1)
+                for i = tailStart, #setupLines do
+                    tailLines[#tailLines + 1] = setupLines[i]
+                end
+                local outputSnippet = table.concat(tailLines, '\n')
+                if outputSnippet ~= '' then
+                    setupFailureMessage = string.format(
+                        'Device setup failed (exit code %s).\n%d photo(s) have been re-queued and will appear in "New/Modified Photos to Publish".\n\nScript output:\n%s',
+                        tostring(setupExit), setupFailedCount, outputSnippet
+                    )
+                else
+                    setupFailureMessage = string.format(
+                        'Device setup failed (exit code %s).\n%d photo(s) have been re-queued and will appear in "New/Modified Photos to Publish".',
+                        tostring(setupExit), setupFailedCount
+                    )
+                end
             else
-                msg = string.format(
-                    'Slideshow upload finished with errors (exit code %s).\n%d photo(s) have been re-queued and will appear in "New/Modified Photos to Publish".\n%s',
-                    tostring(exitCode),
-                    nSucceeded,
-                    LIGHTROOM_LOG_HINT_MULTILINE
-                )
+                logger:info('[publishState] beginning upload phase')
             end
-            LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
-        else
-            -- Device upload succeeded: now commit the publish state for all photos.
-            for _, item in ipairs(localSucceeded) do
+        end
+
+        for i, item in ipairs(renditionItems) do
+            resolvePhotoName(item)
+            if progress:isCanceled() then
+                uploadCanceled = true
+                logger:warn(string.format(
+                    '[publishState] upload phase canceled at photo %d of %d',
+                    i, nRenditions
+                ))
+                for j = i, nRenditions do
+                    local remaining = renditionItems[j]
+                    resolvePhotoName(remaining)
+                    if remaining.exportSucceeded and not remaining.hasFailed then
+                        markFailed(
+                            remaining,
+                            'Upload canceled; photo will be re-queued for publish',
+                            string.format('[publishState] uploadFailed (canceled) for %q', remaining.photoName)
+                        )
+                    end
+                    tick(string.format('Upload canceled: %s', remaining.photoName))
+                end
+                break
+            end
+
+            if setupFailureMessage then
+                tick(string.format('Upload skipped: %s', item.photoName))
+            elseif not item.exportSucceeded then
+                logger:info(string.format(
+                    '[publishState] skipping upload for %q because export did not succeed',
+                    item.photoName
+                ))
+                tick(string.format('Upload skipped: %s', item.photoName))
+            elseif deviceHost == '' then
                 item.rendition:recordPublishedPhotoId(item.destinationPath)
                 logger:info(string.format(
                     '[publishState] recordPublishedPhotoId(%q) for %q',
                     item.destinationPath, item.photoName
                 ))
+                tick(string.format('Published locally %s (%d/%d)', item.photoName, i, nRenditions))
+            else
+                local uploadCmd = buildUploadOneCommand(
+                    helperPath, effectiveSettings, destinationDirectory, item.destinationPath
+                )
+                logger:info(string.format(
+                    '[publishState] upload-one command (%d/%d): %s', i, nRenditions, uploadCmd
+                ))
+                local exitCode, lines = runShellCommand(uploadCmd)
+                local level = (exitCode ~= 0) and 'error' or 'info'
+                logger[level](logger, string.format(
+                    '[uploadOutput:%s] exit=%s lines=%d', item.photoName, tostring(exitCode), #lines
+                ))
+                logShellLines(lines, level, 'uploadOutput:' .. item.photoName)
+
+                if exitCode == 0 then
+                    nDeviceUploaded = nDeviceUploaded + 1
+                    item.rendition:recordPublishedPhotoId(item.destinationPath)
+                    logger:info(string.format(
+                        '[publishState] recordPublishedPhotoId(%q) for %q',
+                        item.destinationPath, item.photoName
+                    ))
+                    tick(string.format('Uploaded %s (%d/%d)', item.photoName, i, nRenditions))
+                else
+                    local failMsg = string.format(
+                        'Device upload failed (exit code %s); photo will be re-queued for publish',
+                        tostring(exitCode)
+                    )
+                    markFailed(
+                        item,
+                        failMsg,
+                        string.format('[publishState] uploadFailed (device error) for %q: %s', item.photoName, failMsg)
+                    )
+                    tick(string.format('Upload failed: %s', item.photoName))
+                end
             end
         end
-    else
-        -- No device host configured: commit publish state immediately after local copy.
-        for _, item in ipairs(localSucceeded) do
-            item.rendition:recordPublishedPhotoId(item.destinationPath)
-            logger:info(string.format(
-                '[publishState] recordPublishedPhotoId(%q) for %q',
-                item.destinationPath, item.photoName
+
+        if (not uploadCanceled) and (not setupFailureMessage) and deviceHost ~= '' and nDeviceUploaded > 0 then
+            local finishCmd = buildFinishCommand(helperPath, effectiveSettings)
+            logger:info('[publishState] finish command: ' .. finishCmd)
+            local finishExit, finishLines = runShellCommand(finishCmd)
+            local finishLevel = (finishExit ~= 0) and 'warn' or 'info'
+            logger[finishLevel](logger, string.format(
+                '[finishOutput] exit=%s lines=%d', tostring(finishExit), #finishLines
             ))
+            logShellLines(finishLines, finishLevel, 'finishOutput')
+            if finishExit ~= 0 then
+                logger:warn(string.format(
+                    '[publishState] POST /show failed (exit code %s); %d photo(s) are on the device',
+                    tostring(finishExit), nDeviceUploaded
+                ))
+            end
         end
+
+        doneAndReturn('Publish complete')
+    end
+
+    logger:info(string.format(
+        '[publishState] publish complete: renditions=%d failed=%d uploaded=%d exportCanceled=%s uploadCanceled=%s',
+        nRenditions, nFailed, nDeviceUploaded, tostring(exportCanceled), tostring(uploadCanceled)
+    ))
+
+    if setupFailureMessage then
+        local msg = string.format('%s\n\n%s', setupFailureMessage, LIGHTROOM_LOG_HINT_MULTILINE)
+        LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
+    elseif nFailed > 0 then
+        local msg
+        if deviceHost ~= '' then
+            msg = string.format(
+                '%d of %d photo(s) failed and have been re-queued:\n\n%s\n\n%d photo(s) uploaded successfully.\n%s',
+                nFailed, nRenditions,
+                table.concat(failedNames, '\n'),
+                nDeviceUploaded,
+                LIGHTROOM_LOG_HINT_MULTILINE
+            )
+        else
+            msg = string.format(
+                '%d of %d photo(s) failed local publish and were NOT marked as published:\n\n%s\n\nThey will remain in "New Photos to Publish" until a successful publish.\n%s',
+                nFailed, nRenditions,
+                table.concat(failedNames, '\n'),
+                LIGHTROOM_LOG_HINT_MULTILINE
+            )
+        end
+        LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
+    elseif exportCanceled or uploadCanceled then
+        local msg = string.format(
+            'Publish was canceled. Remaining unprocessed photos were re-queued.\n%s',
+            LIGHTROOM_LOG_HINT_MULTILINE
+        )
+        LrDialogs.message('Bloomin8 Publish Service', msg, 'warning')
     end
 end
 

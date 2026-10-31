@@ -47,6 +47,7 @@ The repository now includes a bash helper for proving the upload flow outside Li
 
 - Script: `<repository-root>/scripts/bloomin8-upload-probe.sh`
 - Local API docs copy: `<repository-root>/bloomin8-docs/reference`
+- CLI playback controls: `<repository-root>/docs/cli-playback-controls.md`
 
 Recommended flow:
 
@@ -117,6 +118,10 @@ Current helper behavior:
 - deletes and recreates the target gallery so the slideshow contains exactly the current exported set
 - uploads each JPEG into that gallery (in sorted order by default; shuffled when `--random` is passed)
 - calls `POST /show` with `play_type: 1` so the frame iterates the gallery on-device
+
+## CLI playback controls & interval adjustments
+
+To inspect the device's live playback status (current gallery/playlist, playing image, interval), list all stored galleries and playlists, or adjust the slideshow timing interval on the currently playing gallery without re-uploading photos, see the [CLI Playback Controls Guide](docs/cli-playback-controls.md).
 
 ## Automated gallery slideshow from Lightroom
 
